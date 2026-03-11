@@ -1,24 +1,22 @@
-"""Set up a small REVO simulation with PySCF dynamics for alanine dipeptide.
-
-Example
--------
-PYTHONPATH=src python info/examples/PySCF_Alanine/source/revo_pyscf_alanine.py \
-  --n-walkers 5 --n-cycles 2 --segment-length 1
-"""
+"""Set up a REVO simulation with PySCF dynamics for alanine dipeptide."""
 
 # Standard Library
 import argparse
-import re
+import tempfile
 
 # Third Party Library
+import mdtraj as mdj
 import numpy as np
 
 # First Party Library
 from wepy.boundary_conditions.boundary import NoBC
-from wepy.resampling.distances.distance import AtomPairDistance
+from wepy.reporter.dashboard import DashboardReporter
+from wepy.reporter.pyscf import PySCFHDF5Reporter, PySCFRunnerDashboardSection
+from wepy.resampling.distances.pyscf import QMGridDensityDistance
 from wepy.resampling.resamplers.revo import REVOResampler
 from wepy.runners.pyscf import PySCFRunner, PySCFState, PySCFWalker
 from wepy.sim_manager import Manager
+from wepy.util.mdtraj import mdtraj_to_json_topology
 
 ALANINE_DIPEPTIDE_PDB = """\
 ATOM      1 1HH3 ACE     1       2.000   1.000  -0.000
@@ -43,38 +41,22 @@ ATOM     19  CH3 NME     3       5.846   8.284   0.000
 ATOM     20 1HH3 NME     3       4.819   8.648   0.000
 ATOM     21 2HH3 NME     3       6.360   8.648   0.890
 ATOM     22 3HH3 NME     3       6.360   8.648  -0.890
+END
 """
 
 
-def atom_name_to_element(atom_name):
-    token = "".join(re.findall(r"[A-Za-z]+", atom_name))
-    if not token:
-        raise ValueError(f"Could not infer element from atom name: {atom_name}")
+def parse_with_mdtraj_topology(pdb_text):
+    with tempfile.NamedTemporaryFile(suffix=".pdb", mode="w", delete=True) as tmp:
+        tmp.write(pdb_text)
+        tmp.flush()
+        traj = mdj.load_pdb(tmp.name)
 
-    first = token[0].upper()
-    # For biomolecular atom names (CA, CB, CD...) this should be carbon, not calcium.
-    if first in {"H", "C", "N", "O", "S", "P"}:
-        return first
+    topology = traj.topology
+    # mdtraj stores positions in nm, convert to angstrom
+    positions = np.asarray(traj.xyz[0], dtype=float) * 10.0
+    symbols = [atom.element.symbol for atom in topology.atoms]
 
-    return token[:2].capitalize()
-
-
-def parse_pdb_positions_and_symbols(pdb_text):
-    symbols = []
-    positions = []
-
-    for line in pdb_text.splitlines():
-        if not line.startswith("ATOM"):
-            continue
-
-        fields = line.split()
-        atom_name = fields[2]
-        x, y, z = map(float, fields[-3:])
-
-        symbols.append(atom_name_to_element(atom_name))
-        positions.append([x, y, z])
-
-    return symbols, np.asarray(positions, dtype=float)
+    return topology, symbols, positions
 
 
 def generate_initial_walkers(symbols, positions, n_walkers=5, jitter=0.01, seed=13):
@@ -99,9 +81,8 @@ def generate_initial_walkers(symbols, positions, n_walkers=5, jitter=0.01, seed=
     return walkers
 
 
-def build_revo_resampler(n_atoms, init_state):
-    pair_list = [(i, j) for i in range(n_atoms) for j in range(i + 1, n_atoms)]
-    distance = AtomPairDistance(pair_list=pair_list, periodic=False)
+def build_revo_resampler(init_state):
+    distance = QMGridDensityDistance(grid_key="density_grid", normalize=True)
 
     return REVOResampler(
         distance=distance,
@@ -124,9 +105,11 @@ def main():
     parser.add_argument("--xc", type=str, default=None)
     parser.add_argument("--backend", type=str, default="cpu", choices=["cpu", "gpu"])
     parser.add_argument("--disable-scanner", action="store_true")
+    parser.add_argument("--h5-path", type=str, default="alanine_pyscf.wepy.h5")
+    parser.add_argument("--dash-path", type=str, default="alanine_pyscf.dash.org")
     args = parser.parse_args()
 
-    symbols, positions = parse_pdb_positions_and_symbols(ALANINE_DIPEPTIDE_PDB)
+    mdj_top, symbols, positions = parse_with_mdtraj_topology(ALANINE_DIPEPTIDE_PDB)
     walkers = generate_initial_walkers(symbols, positions, n_walkers=args.n_walkers)
 
     runner = PySCFRunner(
@@ -138,14 +121,27 @@ def main():
         use_scf_scanner=not args.disable_scanner,
     )
 
-    resampler = build_revo_resampler(len(symbols), init_state=walkers[0].state)
+    resampler = build_revo_resampler(init_state=walkers[0].state)
+
+    json_topology = mdtraj_to_json_topology(mdj_top)
+    h5_reporter = PySCFHDF5Reporter(
+        wepy_hdf5_path=args.h5_path,
+        topology=json_topology,
+        resampler=resampler,
+        boundary_conditions=NoBC(),
+    )
+
+    dash_reporter = DashboardReporter(
+        dashboard_path=args.dash_path,
+        runner_dash=PySCFRunnerDashboardSection(runner=runner),
+    )
 
     sim_manager = Manager(
         walkers,
         runner=runner,
         resampler=resampler,
         boundary_conditions=NoBC(),
-        reporters=[],
+        reporters=[h5_reporter, dash_reporter],
     )
 
     end_walkers, _ = sim_manager.run_simulation(

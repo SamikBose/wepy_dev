@@ -1,11 +1,4 @@
-"""PySCF molecular simulation runner and accessory classes.
-
-This module mirrors the architecture of :mod:`wepy.runners.openmm` with:
-
-- :class:`PySCFRunner` implementing the Runner interface
-- :class:`PySCFState` and :class:`PySCFWalker`
-- CPU/GPU worker specializations for WorkerMapper and TaskMapper
-"""
+"""PySCF molecular simulation runner and accessory classes."""
 
 # Standard Library
 import importlib
@@ -29,6 +22,10 @@ KEYS = (
     "positions",
     "energy",
     "gradients",
+    "density_matrix",
+    "density_grid",
+    "density_grid_origin",
+    "density_grid_spacing",
     "charge",
     "spin",
     "basis",
@@ -37,19 +34,16 @@ KEYS = (
     "unit",
     "segment_step_idx",
 )
-"""Names of canonical fields in :class:`PySCFState`."""
 
 UNIT_NAMES = (
     ("positions_unit", "angstrom"),
     ("energy_unit", "hartree"),
     ("gradients_unit", "hartree/bohr"),
+    ("density_grid_unit", "electron/bohr^3"),
 )
-"""Serialized unit names for PySCF state fields."""
 
 
 class PySCFState(WalkerState):
-    """WalkerState implementation for PySCF based simulations."""
-
     KEYS = KEYS
 
     def __init__(self, **kwargs):
@@ -63,8 +57,6 @@ class PySCFState(WalkerState):
 
 
 class PySCFWalker(Walker):
-    """Walker enforcing use of :class:`PySCFState`."""
-
     def __init__(self, state, weight):
         assert isinstance(
             state, PySCFState
@@ -73,8 +65,6 @@ class PySCFWalker(Walker):
 
 
 class PySCFRunner(Runner):
-    """Runner that propagates coordinates using PySCF energies/gradients."""
-
     SUPPORTED_METHODS = ("RHF", "UHF", "RKS", "UKS")
 
     def __init__(
@@ -88,6 +78,8 @@ class PySCFRunner(Runner):
         step_size=1e-3,
         backend="cpu",
         use_scf_scanner=True,
+        density_grid_shape=(10, 10, 10),
+        density_grid_padding=2.0,
     ):
         self.basis = basis
         self.method = method.upper()
@@ -98,6 +90,8 @@ class PySCFRunner(Runner):
         self.step_size = step_size
         self.backend = backend
         self.use_scf_scanner = use_scf_scanner
+        self.density_grid_shape = tuple(density_grid_shape)
+        self.density_grid_padding = float(density_grid_padding)
 
         if self.method not in self.SUPPORTED_METHODS:
             raise ValueError(
@@ -177,8 +171,7 @@ class PySCFRunner(Runner):
                 mf = mf.to_gpu()
             else:
                 raise RuntimeError(
-                    "Requested GPU backend but PySCF mean-field object does not "
-                    "support to_gpu()."
+                    "Requested GPU backend but PySCF mean-field object does not support to_gpu()."
                 )
 
         return mf
@@ -190,7 +183,49 @@ class PySCFRunner(Runner):
 
         return grad_method.as_scanner()
 
-    def generate_state(self, state_data, positions, energy, gradients, segment_step_idx):
+    def _make_density_grid_coords(self, positions):
+        mins = np.min(positions, axis=0) - self.density_grid_padding
+        maxs = np.max(positions, axis=0) + self.density_grid_padding
+
+        axes = [
+            np.linspace(mins[i], maxs[i], self.density_grid_shape[i]) for i in range(3)
+        ]
+        mesh = np.meshgrid(*axes, indexing="ij")
+        coords = np.stack(mesh, axis=-1).reshape(-1, 3)
+
+        spacing = np.array(
+            [axes[i][1] - axes[i][0] if len(axes[i]) > 1 else 1.0 for i in range(3)]
+        )
+
+        return coords, mins, spacing
+
+    def _compute_density_grid(self, mol, density_matrix, positions):
+        numint = importlib.import_module("pyscf.dft.numint")
+
+        dm = np.asarray(density_matrix)
+        if dm.ndim == 3:
+            dm = dm[0] + dm[1]
+
+        grid_coords, origin, spacing = self._make_density_grid_coords(positions)
+
+        ao_values = numint.eval_ao(mol, grid_coords)
+        rho = numint.eval_rho(mol, ao_values, dm)
+        rho_grid = np.asarray(rho, dtype=float).reshape(self.density_grid_shape)
+
+        return rho_grid, origin, spacing
+
+    def generate_state(
+        self,
+        state_data,
+        positions,
+        energy,
+        gradients,
+        segment_step_idx,
+        density_matrix,
+        density_grid,
+        density_grid_origin,
+        density_grid_spacing,
+    ):
         return PySCFState(
             **{
                 **state_data,
@@ -198,6 +233,10 @@ class PySCFRunner(Runner):
                 "energy": energy,
                 "gradients": gradients,
                 "segment_step_idx": segment_step_idx,
+                "density_matrix": density_matrix,
+                "density_grid": density_grid,
+                "density_grid_origin": density_grid_origin,
+                "density_grid_spacing": density_grid_spacing,
             }
         )
 
@@ -216,6 +255,10 @@ class PySCFRunner(Runner):
 
         last_energy = state_data.get("energy", None)
         last_gradients = np.zeros_like(positions)
+        last_density_matrix = np.zeros((positions.shape[0], positions.shape[0]))
+        last_density_grid = np.zeros(self.density_grid_shape)
+        last_density_grid_origin = np.zeros(3)
+        last_density_grid_spacing = np.ones(3)
         segment_step_idx = 0
 
         scanner = None
@@ -243,13 +286,34 @@ class PySCFRunner(Runner):
                 )
                 energy = mf.kernel()
                 gradients = np.asarray(mf.nuc_grad_method().kernel(), dtype=float)
+                density_matrix = np.asarray(mf.make_rdm1(), dtype=float)
             else:
                 energy, gradients = scanner(mol)
                 gradients = np.asarray(gradients, dtype=float)
 
+                scan_base = getattr(scanner, "base", None)
+                if scan_base is None or not hasattr(scan_base, "make_rdm1"):
+                    # conservative fallback if scanner wrapper does not expose base
+                    mf = self._build_mean_field(mol, iter_state)
+                    mf = self._configure_hardware(
+                        mf, backend=backend, platform_kwargs=platform_kwargs
+                    )
+                    mf.kernel()
+                    density_matrix = np.asarray(mf.make_rdm1(), dtype=float)
+                else:
+                    density_matrix = np.asarray(scan_base.make_rdm1(), dtype=float)
+
+            density_grid, density_origin, density_spacing = self._compute_density_grid(
+                mol, density_matrix, positions
+            )
+
             positions = positions - self.step_size * gradients
             last_energy = float(energy)
             last_gradients = gradients
+            last_density_matrix = density_matrix
+            last_density_grid = density_grid
+            last_density_grid_origin = density_origin
+            last_density_grid_spacing = density_spacing
             segment_step_idx = step_idx
 
         new_state = self.generate_state(
@@ -258,6 +322,10 @@ class PySCFRunner(Runner):
             energy=last_energy,
             gradients=last_gradients,
             segment_step_idx=segment_step_idx,
+            density_matrix=last_density_matrix,
+            density_grid=last_density_grid,
+            density_grid_origin=last_density_grid_origin,
+            density_grid_spacing=last_density_grid_spacing,
         )
 
         if isinstance(walker, PySCFWalker):
@@ -266,8 +334,6 @@ class PySCFRunner(Runner):
 
 
 class PySCFCPUWorker(Worker):
-    """Worker specialization for CPU PySCF execution."""
-
     NAME_TEMPLATE = "PySCFCPUWorker-{}"
     DEFAULT_NUM_THREADS = 1
 
@@ -285,8 +351,6 @@ class PySCFCPUWorker(Worker):
 
 
 class PySCFGPUWorker(Worker):
-    """Worker specialization for GPU PySCF execution."""
-
     NAME_TEMPLATE = "PySCFGPUWorker-{}"
 
     def run_task(self, task):
@@ -296,8 +360,6 @@ class PySCFGPUWorker(Worker):
 
 
 class PySCFCPUWalkerTaskProcess(WalkerTaskProcess):
-    """Task-process specialization for CPU PySCF execution."""
-
     NAME_TEMPLATE = "PySCF_CPU_Walker_Task-{}"
 
     def run_task(self, task):
@@ -311,8 +373,6 @@ class PySCFCPUWalkerTaskProcess(WalkerTaskProcess):
 
 
 class PySCFGPUWalkerTaskProcess(WalkerTaskProcess):
-    """Task-process specialization for GPU PySCF execution."""
-
     NAME_TEMPLATE = "PySCF_GPU_Walker_Task-{}"
 
     def run_task(self, task):

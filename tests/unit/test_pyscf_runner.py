@@ -20,18 +20,32 @@ from wepy.runners.pyscf import (
 from wepy.walker import Walker, WalkerState
 
 
+class _FakeNumInt(object):
+    @staticmethod
+    def eval_ao(_mol, grid_coords):
+        return np.ones((len(grid_coords), 1), dtype=float)
+
+    @staticmethod
+    def eval_rho(_mol, _ao_values, _density_matrix):
+        return np.ones((_ao_values.shape[0],), dtype=float)
+
+
 class _FakeGradients(object):
-    def __init__(self, gradients, energy):
+    def __init__(self, gradients, energy, mf):
         self._gradients = gradients
         self._energy = energy
+        self._mf = mf
 
     def kernel(self):
         return self._gradients
 
     def as_scanner(self):
+        mf = self._mf
+
         def _scanner(_mol):
             return self._energy, self._gradients
 
+        _scanner.base = mf
         return _scanner
 
 
@@ -46,7 +60,10 @@ class _FakeMF(object):
         return self._energy
 
     def nuc_grad_method(self):
-        return _FakeGradients(self._gradients, self._energy)
+        return _FakeGradients(self._gradients, self._energy, self)
+
+    def make_rdm1(self):
+        return np.eye(1, dtype=float)
 
     def to_gpu(self):
         if not self._supports_gpu:
@@ -75,6 +92,9 @@ class _FakeModuleFactory(object):
             UKS=lambda mol: _FakeMF(self._gradients, self._energy, self._supports_gpu),
         )
 
+    def numint(self):
+        return _FakeNumInt()
+
 
 def _patch_imports(monkeypatch, factory):
     def _fake_import(name):
@@ -84,17 +104,19 @@ def _patch_imports(monkeypatch, factory):
             return factory.scf()
         if name == "pyscf.dft":
             return factory.dft()
+        if name == "pyscf.dft.numint":
+            return factory.numint()
         raise ValueError(name)
 
     monkeypatch.setattr("wepy.runners.pyscf.importlib.import_module", _fake_import)
 
 
-def test_run_segment_updates_positions_and_step_idx(monkeypatch):
+def test_run_segment_updates_positions_and_quantum_fields(monkeypatch):
     gradients = np.array([[1.0, -2.0, 0.5]])
     energy = -1.23
     _patch_imports(monkeypatch, _FakeModuleFactory(gradients=gradients, energy=energy))
 
-    runner = PySCFRunner(step_size=0.1)
+    runner = PySCFRunner(step_size=0.1, density_grid_shape=(2, 2, 2))
     walker = Walker(
         WalkerState(symbols=["H"], positions=np.array([[0.0, 0.0, 0.0]])),
         0.5,
@@ -106,6 +128,8 @@ def test_run_segment_updates_positions_and_step_idx(monkeypatch):
     assert new_walker.state["energy"] == energy
     np.testing.assert_allclose(new_walker.state["gradients"], gradients)
     assert new_walker.state["segment_step_idx"] == 2
+    assert new_walker.state["density_matrix"].shape == (1, 1)
+    assert new_walker.state["density_grid"].shape == (2, 2, 2)
     assert new_walker.weight == walker.weight
 
 
