@@ -21,11 +21,18 @@ from wepy.walker import Walker, WalkerState
 
 
 class _FakeGradients(object):
-    def __init__(self, gradients):
+    def __init__(self, gradients, energy):
         self._gradients = gradients
+        self._energy = energy
 
     def kernel(self):
         return self._gradients
+
+    def as_scanner(self):
+        def _scanner(_mol):
+            return self._energy, self._gradients
+
+        return _scanner
 
 
 class _FakeMF(object):
@@ -39,7 +46,7 @@ class _FakeMF(object):
         return self._energy
 
     def nuc_grad_method(self):
-        return _FakeGradients(self._gradients)
+        return _FakeGradients(self._gradients, self._energy)
 
     def to_gpu(self):
         if not self._supports_gpu:
@@ -212,3 +219,20 @@ def test_worker_and_task_process_inject_hardware_kwargs():
         "backend": "gpu",
         "platform_kwargs": {"DeviceIndex": "5"},
     }
+
+
+def test_run_segment_without_scanner(monkeypatch):
+    gradients = np.array([[0.5, 0.0, -0.5]])
+    energy = -2.5
+    _patch_imports(monkeypatch, _FakeModuleFactory(gradients=gradients, energy=energy))
+
+    runner = PySCFRunner(step_size=0.2, use_scf_scanner=False)
+    walker = Walker(
+        WalkerState(symbols=["H"], positions=np.array([[0.0, 0.0, 0.0]])),
+        1.0,
+    )
+
+    new_walker = runner.run_segment(walker, 1)
+
+    np.testing.assert_allclose(new_walker.state["positions"], np.array([[-0.1, 0.0, 0.1]]))
+    assert new_walker.state["energy"] == energy

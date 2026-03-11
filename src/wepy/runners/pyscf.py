@@ -87,6 +87,7 @@ class PySCFRunner(Runner):
         unit="Angstrom",
         step_size=1e-3,
         backend="cpu",
+        use_scf_scanner=True,
     ):
         self.basis = basis
         self.method = method.upper()
@@ -96,6 +97,7 @@ class PySCFRunner(Runner):
         self.unit = unit
         self.step_size = step_size
         self.backend = backend
+        self.use_scf_scanner = use_scf_scanner
 
         if self.method not in self.SUPPORTED_METHODS:
             raise ValueError(
@@ -181,6 +183,13 @@ class PySCFRunner(Runner):
 
         return mf
 
+    def _build_gradient_scanner(self, mf):
+        grad_method = mf.nuc_grad_method()
+        if not hasattr(grad_method, "as_scanner"):
+            return None
+
+        return grad_method.as_scanner()
+
     def generate_state(self, state_data, positions, energy, gradients, segment_step_idx):
         return PySCFState(
             **{
@@ -209,18 +218,34 @@ class PySCFRunner(Runner):
         last_gradients = np.zeros_like(positions)
         segment_step_idx = 0
 
+        scanner = None
+        if total_steps > 0 and self.use_scf_scanner:
+            init_state = PySCFState(
+                **{**state_data, "positions": positions, "segment_step_idx": 0}
+            )
+            init_mol = self._build_molecule(init_state)
+            init_mf = self._build_mean_field(init_mol, init_state)
+            init_mf = self._configure_hardware(
+                init_mf, backend=backend, platform_kwargs=platform_kwargs
+            )
+            scanner = self._build_gradient_scanner(init_mf)
+
         for step_idx in range(1, total_steps + 1):
             iter_state = PySCFState(
                 **{**state_data, "positions": positions, "segment_step_idx": step_idx}
             )
             mol = self._build_molecule(iter_state)
-            mf = self._build_mean_field(mol, iter_state)
-            mf = self._configure_hardware(
-                mf, backend=backend, platform_kwargs=platform_kwargs
-            )
 
-            energy = mf.kernel()
-            gradients = np.asarray(mf.nuc_grad_method().kernel(), dtype=float)
+            if scanner is None:
+                mf = self._build_mean_field(mol, iter_state)
+                mf = self._configure_hardware(
+                    mf, backend=backend, platform_kwargs=platform_kwargs
+                )
+                energy = mf.kernel()
+                gradients = np.asarray(mf.nuc_grad_method().kernel(), dtype=float)
+            else:
+                energy, gradients = scanner(mol)
+                gradients = np.asarray(gradients, dtype=float)
 
             positions = positions - self.step_size * gradients
             last_energy = float(energy)
