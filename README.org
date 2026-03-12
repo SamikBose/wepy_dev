@@ -1,4 +1,4 @@
-* Weighted Ensemble Python (wepy): Development towards QM and QM/MM WE simultions
+* Weighted Ensemble Python (wepy) Development towards QM and QM/MM WE simultions
 
  
 [[./info/logo/wepy.svg]]
