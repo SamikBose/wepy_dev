@@ -74,11 +74,28 @@ class PySCFHDF5Reporter(WepyHDF5Reporter):
         "segment_step_idx",
     )
 
-    def __init__(self, save_fields=None, units=None, **kwargs):
+    def __init__(
+        self,
+        save_fields=None,
+        units=None,
+        wepy_hdf5_path=None,
+        file_paths=None,
+        **kwargs,
+    ):
         if save_fields is None:
             save_fields = self.DEFAULT_SAVE_FIELDS
 
         if units is None:
             units = dict(UNIT_NAMES)
 
-        super().__init__(save_fields=save_fields, units=units, **kwargs)
+        # Work around explicit-path handling in FileReporter by always
+        # normalizing to file_paths for this single-file reporter.
+        if file_paths is None and wepy_hdf5_path is not None:
+            file_paths = [wepy_hdf5_path]
+
+        super().__init__(
+            save_fields=save_fields,
+            units=units,
+            file_paths=file_paths,
+            **kwargs,
+        )

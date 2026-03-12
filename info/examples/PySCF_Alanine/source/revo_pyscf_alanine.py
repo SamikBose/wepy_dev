@@ -125,14 +125,14 @@ def main():
 
     json_topology = mdtraj_to_json_topology(mdj_top)
     h5_reporter = PySCFHDF5Reporter(
-        wepy_hdf5_path=args.h5_path,
+        file_paths=[args.h5_path],
         topology=json_topology,
         resampler=resampler,
         boundary_conditions=NoBC(),
     )
 
     dash_reporter = DashboardReporter(
-        dashboard_path=args.dash_path,
+        file_paths=[args.dash_path],
         runner_dash=PySCFRunnerDashboardSection(runner=runner),
     )
 
