@@ -59,7 +59,9 @@ def parse_with_mdtraj_topology(pdb_text):
     return topology, symbols, positions
 
 
-def generate_initial_walkers(symbols, positions, n_walkers=5, jitter=0.01, seed=13):
+def generate_initial_walkers(
+    symbols, positions, n_walkers=5, jitter=0.01, seed=13, density_grid_shape=(10, 10, 10)
+):
     rng = np.random.default_rng(seed)
     walkers = []
     weight = 1.0 / n_walkers
@@ -75,6 +77,12 @@ def generate_initial_walkers(symbols, positions, n_walkers=5, jitter=0.01, seed=
             method="RHF",
             unit="Angstrom",
             segment_step_idx=0,
+            energy=np.nan,
+            gradients=np.zeros_like(noisy_positions),
+            density_matrix=np.zeros((len(symbols), len(symbols))),
+            density_grid=np.zeros(density_grid_shape),
+            density_grid_origin=np.zeros(3),
+            density_grid_spacing=np.ones(3),
         )
         walkers.append(PySCFWalker(state, weight))
 
@@ -105,12 +113,19 @@ def main():
     parser.add_argument("--xc", type=str, default=None)
     parser.add_argument("--backend", type=str, default="cpu", choices=["cpu", "gpu"])
     parser.add_argument("--disable-scanner", action="store_true")
+    parser.add_argument("--density-grid-shape", type=int, nargs=3, default=(10, 10, 10))
     parser.add_argument("--h5-path", type=str, default="alanine_pyscf.wepy.h5")
     parser.add_argument("--dash-path", type=str, default="alanine_pyscf.dash.org")
     args = parser.parse_args()
 
     mdj_top, symbols, positions = parse_with_mdtraj_topology(ALANINE_DIPEPTIDE_PDB)
-    walkers = generate_initial_walkers(symbols, positions, n_walkers=args.n_walkers)
+    density_grid_shape = tuple(args.density_grid_shape)
+    walkers = generate_initial_walkers(
+        symbols,
+        positions,
+        n_walkers=args.n_walkers,
+        density_grid_shape=density_grid_shape,
+    )
 
     runner = PySCFRunner(
         basis=args.basis,
@@ -119,6 +134,7 @@ def main():
         step_size=args.step_size,
         backend=args.backend,
         use_scf_scanner=not args.disable_scanner,
+        density_grid_shape=density_grid_shape,
     )
 
     resampler = build_revo_resampler(init_state=walkers[0].state)
