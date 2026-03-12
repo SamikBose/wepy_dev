@@ -125,9 +125,9 @@ def test_run_segment_updates_positions_and_quantum_fields(monkeypatch):
     new_walker = runner.run_segment(walker, 2)
 
     np.testing.assert_allclose(new_walker.state["positions"], np.array([[-0.2, 0.4, -0.1]]))
-    assert new_walker.state["energy"] == energy
+    assert float(new_walker.state["energy"][0]) == energy
     np.testing.assert_allclose(new_walker.state["gradients"], gradients)
-    assert new_walker.state["segment_step_idx"] == 2
+    assert int(new_walker.state["segment_step_idx"][0]) == 2
     assert new_walker.state["density_matrix"].shape == (1, 1)
     assert new_walker.state["density_grid"].shape == (2, 2, 2)
     assert new_walker.weight == walker.weight
@@ -145,7 +145,7 @@ def test_runner_pre_cycle_backend_override(monkeypatch):
         1.0,
     )
     new_walker = runner.run_segment(walker, 1)
-    assert new_walker.state["segment_step_idx"] == 1
+    assert int(new_walker.state["segment_step_idx"][0]) == 1
 
     runner.post_cycle()
     assert runner._cycle_backend is None
@@ -176,7 +176,7 @@ def test_zero_segment_length_has_zero_step_index(monkeypatch):
 
     new_walker = runner.run_segment(walker, 0)
 
-    assert new_walker.state["segment_step_idx"] == 0
+    assert int(new_walker.state["segment_step_idx"][0]) == 0
 
 
 def test_pyscf_state_and_walker():
@@ -259,4 +259,4 @@ def test_run_segment_without_scanner(monkeypatch):
     new_walker = runner.run_segment(walker, 1)
 
     np.testing.assert_allclose(new_walker.state["positions"], np.array([[-0.1, 0.0, 0.1]]))
-    assert new_walker.state["energy"] == energy
+    assert float(new_walker.state["energy"][0]) == energy

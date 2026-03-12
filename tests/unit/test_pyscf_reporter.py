@@ -19,7 +19,7 @@ def test_dashboard_section_tracks_energy():
             PySCFState(
                 symbols=["H"],
                 positions=np.zeros((1, 3)),
-                energy=-1.0,
+                energy=np.array([-1.0]),
             ),
             1.0,
         )

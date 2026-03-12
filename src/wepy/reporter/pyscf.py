@@ -34,11 +34,12 @@ Average Energy: {{ avg_energy }}
         self._energies = []
 
     def update_values(self, **kwargs):
-        energies = [
-            walker.state["energy"]
-            for walker in kwargs.get("new_walkers", [])
-            if walker.state.dict().get("energy", None) is not None
-        ]
+        energies = []
+        for walker in kwargs.get("new_walkers", []):
+            energy = walker.state.dict().get("energy", None)
+            if energy is None:
+                continue
+            energies.append(float(np.asarray(energy).ravel()[0]))
         if len(energies) > 0:
             self._energies.extend(energies)
 

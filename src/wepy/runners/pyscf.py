@@ -230,9 +230,9 @@ class PySCFRunner(Runner):
             **{
                 **state_data,
                 "positions": positions,
-                "energy": energy,
+                "energy": np.array([np.nan if energy is None else float(np.asarray(energy).ravel()[0])]),
                 "gradients": gradients,
-                "segment_step_idx": segment_step_idx,
+                "segment_step_idx": np.array([int(segment_step_idx)]),
                 "density_matrix": density_matrix,
                 "density_grid": density_grid,
                 "density_grid_origin": density_grid_origin,
