@@ -1,0 +1,54 @@
+* Simulation
+
+Init Datetime: 2026-03-12 18:07:35.137902
+Last write Datetime: 2026-03-12T18:08:43.898141
+Total Run time: 68.76024436950684 s
+Last Cycle Index: 0
+Number of Cycles: 1
+
+** Walkers Summary
+|    |   total |   min |   max |
+|----+---------+-------+-------|
+|  0 |       1 |   0.2 |   0.2 |
+
+
+
+
+
+
+
+
+* Runner
+
+
+Runner: PySCFRunner
+
+Backend: cpu
+Step size: 0.0001
+Average Energy: -486.5504489117644
+
+* Performance
+
+Average Cycle Time: 68.63974118232727
+Average Runner Time: 68.63825964927673
+Average Boundary Conditions Time: 9.5367431640625e-06
+Average Resampling Time: 0.0014719963073730469
+
+** Worker Avg. Segment Times:
+|    |   avg_segment_time (s) |
+|----+------------------------|
+|  0 |                13.7276 |
+
+** Cycle Performance Log
+|    |   cycle_time (s) |   runner_time (s) |   boundary_conditions_time (s) |   resampling_time (s) |
+|----+------------------+-------------------+--------------------------------+-----------------------|
+|  0 |              nan |           68.6383 |                    9.53674e-06 |              0.001472 |
+
+** Worker Performance Log
+|   cycle_idx |   n_steps |   worker_idx |   segment_time (s) |
+|-------------+-----------+--------------+--------------------|
+|           0 |         1 |            0 |            14.5694 |
+|           0 |         1 |            0 |            13.542  |
+|           0 |         1 |            0 |            13.481  |
+|           0 |         1 |            0 |            13.5197 |
+|           0 |         1 |            0 |            13.526  |
