@@ -14,7 +14,13 @@ from wepy.reporter.dashboard import DashboardReporter
 from wepy.reporter.pyscf import PySCFHDF5Reporter, PySCFRunnerDashboardSection
 from wepy.resampling.distances.pyscf import QMGridDensityDistance
 from wepy.resampling.resamplers.revo import REVOResampler
-from wepy.runners.pyscf import PySCFRunner, PySCFState, PySCFWalker
+from wepy.runners.pyscf import (
+    PySCFCPUTaskMapper,
+    PySCFGPUTaskMapper,
+    PySCFRunner,
+    PySCFState,
+    PySCFWalker,
+)
 from wepy.sim_manager import Manager
 from wepy.util.mdtraj import mdtraj_to_json_topology
 
@@ -115,6 +121,10 @@ def main():
     parser.add_argument("--disable-scanner", action="store_true")
     parser.add_argument("--density-grid-shape", type=int, nargs=3, default=(10, 10, 10))
     parser.add_argument("--h5-path", type=str, default="alanine_pyscf.wepy.h5")
+    parser.add_argument("--parallel-backend", choices=["none", "cpu", "gpu"], default="none")
+    parser.add_argument("--num-workers", type=int, default=1)
+    parser.add_argument("--num-threads", type=int, default=1)
+    parser.add_argument("--device-ids", type=int, nargs="*", default=None)
     parser.add_argument("--dash-path", type=str, default="alanine_pyscf.dash.org")
     args = parser.parse_args()
 
@@ -152,9 +162,29 @@ def main():
         runner_dash=PySCFRunnerDashboardSection(runner=runner),
     )
 
+    if args.parallel_backend == "gpu":
+        if args.device_ids is None:
+            device_ids = list(range(args.num_workers))
+        else:
+            device_ids = args.device_ids
+
+        mapper = PySCFGPUTaskMapper(
+            num_workers=args.num_workers,
+            platform="CUDA",
+            device_ids=device_ids,
+        )
+    elif args.parallel_backend == "cpu":
+        mapper = PySCFCPUTaskMapper(
+            num_workers=args.num_workers,
+            num_threads=args.num_threads,
+        )
+    else:
+        mapper = None
+
     sim_manager = Manager(
         walkers,
         runner=runner,
+        work_mapper=mapper,
         resampler=resampler,
         boundary_conditions=NoBC(),
         reporters=[h5_reporter, dash_reporter],
@@ -166,6 +196,7 @@ def main():
     )
 
     print(f"Completed REVO/PySCF run with {len(end_walkers)} walkers")
+    print(f"Parallel backend: {args.parallel_backend}")
     print("Final walker energies:", [walker.state["energy"] for walker in end_walkers])
 
 

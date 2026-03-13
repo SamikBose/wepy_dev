@@ -12,7 +12,7 @@ import numpy as np
 # First Party Library
 from wepy.runners.runner import Runner
 from wepy.walker import Walker, WalkerState
-from wepy.work_mapper.task_mapper import WalkerTaskProcess
+from wepy.work_mapper.task_mapper import TaskMapper, WalkerTaskProcess
 from wepy.work_mapper.worker import Worker
 
 logger = logging.getLogger(__name__)
@@ -379,3 +379,34 @@ class PySCFGPUWalkerTaskProcess(WalkerTaskProcess):
         device_id = self.mapper_attributes["device_ids"][self._worker_idx]
         platform_options = {"DeviceIndex": str(device_id)}
         return task(backend="gpu", platform_kwargs=platform_options)
+
+
+class PySCFCPUTaskMapper(TaskMapper):
+    """Convenience TaskMapper for CPU walker-level parallelism."""
+
+    def __init__(self, num_workers=None, num_threads=1, **kwargs):
+        super().__init__(
+            walker_task_type=PySCFCPUWalkerTaskProcess,
+            num_workers=num_workers,
+            num_threads=num_threads,
+            **kwargs,
+        )
+
+
+class PySCFGPUTaskMapper(TaskMapper):
+    """Convenience TaskMapper for GPU walker-level parallelism."""
+
+    def __init__(self, num_workers=None, platform="CUDA", device_ids=None, **kwargs):
+        if device_ids is None:
+            raise ValueError("device_ids must be provided for PySCFGPUTaskMapper")
+
+        if num_workers is None:
+            num_workers = len(device_ids)
+
+        super().__init__(
+            walker_task_type=PySCFGPUWalkerTaskProcess,
+            num_workers=num_workers,
+            platform=platform,
+            device_ids=device_ids,
+            **kwargs,
+        )

@@ -13,6 +13,8 @@ from wepy.runners.pyscf import (
     PySCFCPUWorker,
     PySCFGPUWalkerTaskProcess,
     PySCFGPUWorker,
+    PySCFCPUTaskMapper,
+    PySCFGPUTaskMapper,
     PySCFRunner,
     PySCFState,
     PySCFWalker,
@@ -260,3 +262,23 @@ def test_run_segment_without_scanner(monkeypatch):
 
     np.testing.assert_allclose(new_walker.state["positions"], np.array([[-0.1, 0.0, 0.1]]))
     assert float(new_walker.state["energy"][0]) == energy
+
+
+def test_task_mapper_convenience_classes():
+    cpu_mapper = PySCFCPUTaskMapper(num_workers=2, num_threads=3)
+    assert cpu_mapper.walker_task_type.__name__ == "PySCFCPUWalkerTaskProcess"
+    assert cpu_mapper.num_workers == 2
+    assert cpu_mapper._attributes["num_threads"] == 3
+
+    gpu_mapper = PySCFGPUTaskMapper(num_workers=2, platform="CUDA", device_ids=[0, 1])
+    assert gpu_mapper.walker_task_type.__name__ == "PySCFGPUWalkerTaskProcess"
+    assert gpu_mapper.num_workers == 2
+    assert gpu_mapper._attributes["platform"] == "CUDA"
+    assert gpu_mapper._attributes["device_ids"] == [0, 1]
+
+    try:
+        PySCFGPUTaskMapper(num_workers=1)
+    except ValueError as exc:
+        assert "device_ids" in str(exc)
+    else:
+        raise AssertionError("Expected ValueError when no device_ids are provided")
