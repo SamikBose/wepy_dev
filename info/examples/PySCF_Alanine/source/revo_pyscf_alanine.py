@@ -128,6 +128,7 @@ def main():
     parser.add_argument("--device-ids", type=int, nargs="*", default=None)
     parser.add_argument("--gpu-fallback-cpu", action="store_true")
     parser.add_argument("--dash-path", type=str, default="alanine_pyscf.dash.org")
+    parser.add_argument("--overwrite", action="store_true")
     args = parser.parse_args()
 
     mdj_top, symbols, positions = parse_with_mdtraj_topology(ALANINE_DIPEPTIDE_PDB)
@@ -137,6 +138,7 @@ def main():
         positions,
         n_walkers=args.n_walkers,
         density_grid_shape=density_grid_shape,
+        gpu_fallback_cpu_on_error=args.gpu_fallback_cpu,
     )
 
     runner = PySCFRunner(
@@ -147,13 +149,17 @@ def main():
         backend=args.backend,
         use_scf_scanner=not args.disable_scanner,
         density_grid_shape=density_grid_shape,
+        gpu_fallback_cpu_on_error=args.gpu_fallback_cpu,
     )
 
     resampler = build_revo_resampler(init_state=walkers[0].state)
 
     json_topology = mdtraj_to_json_topology(mdj_top)
+    output_mode = "w" if args.overwrite else "x"
+
     h5_reporter = PySCFHDF5Reporter(
         file_paths=[args.h5_path],
+        modes=[output_mode],
         topology=json_topology,
         resampler=resampler,
         boundary_conditions=NoBC(),
@@ -161,6 +167,7 @@ def main():
 
     dash_reporter = DashboardReporter(
         file_paths=[args.dash_path],
+        modes=[output_mode],
         runner_dash=PySCFRunnerDashboardSection(runner=runner),
     )
 
