@@ -2,6 +2,7 @@
 
 # Standard Library
 import importlib
+import importlib.util
 import logging
 import os
 from copy import deepcopy
@@ -80,6 +81,7 @@ class PySCFRunner(Runner):
         use_scf_scanner=True,
         density_grid_shape=(10, 10, 10),
         density_grid_padding=2.0,
+        gpu_fallback_cpu_on_error=False,
     ):
         self.basis = basis
         self.method = method.upper()
@@ -92,6 +94,7 @@ class PySCFRunner(Runner):
         self.use_scf_scanner = use_scf_scanner
         self.density_grid_shape = tuple(density_grid_shape)
         self.density_grid_padding = float(density_grid_padding)
+        self.gpu_fallback_cpu_on_error = gpu_fallback_cpu_on_error
 
         if self.method not in self.SUPPORTED_METHODS:
             raise ValueError(
@@ -168,13 +171,31 @@ class PySCFRunner(Runner):
                 os.environ["CUDA_VISIBLE_DEVICES"] = str(device_id)
 
             if hasattr(mf, "to_gpu"):
-                mf = mf.to_gpu()
+                try:
+                    mf = mf.to_gpu()
+                except ModuleNotFoundError as exc:
+                    if getattr(exc, "name", None) == "cupy":
+                        raise RuntimeError(
+                            "GPU backend requested but CuPy is not installed. "
+                            "Install a CuPy build compatible with your CUDA version "
+                            "(e.g. cupy-cuda12x) or run with CPU backend."
+                        ) from exc
+                    raise
             else:
                 raise RuntimeError(
                     "Requested GPU backend but PySCF mean-field object does not support to_gpu()."
                 )
 
         return mf
+
+    def _is_gpu_runtime_error(self, exc):
+        msg = str(exc).lower()
+        gpu_signatures = (
+            "unsupported toolchain",
+            "failed in block_diag kernel",
+            "cuda error",
+        )
+        return any(sig in msg for sig in gpu_signatures)
 
     def _build_gradient_scanner(self, mf):
         grad_method = mf.nuc_grad_method()
@@ -262,16 +283,32 @@ class PySCFRunner(Runner):
         segment_step_idx = 0
 
         scanner = None
+        allow_gpu_fallback = kwargs.get(
+            "gpu_fallback_cpu_on_error", self.gpu_fallback_cpu_on_error
+        )
+
         if total_steps > 0 and self.use_scf_scanner:
             init_state = PySCFState(
                 **{**state_data, "positions": positions, "segment_step_idx": 0}
             )
             init_mol = self._build_molecule(init_state)
             init_mf = self._build_mean_field(init_mol, init_state)
-            init_mf = self._configure_hardware(
-                init_mf, backend=backend, platform_kwargs=platform_kwargs
-            )
-            scanner = self._build_gradient_scanner(init_mf)
+            try:
+                init_mf = self._configure_hardware(
+                    init_mf, backend=backend, platform_kwargs=platform_kwargs
+                )
+                scanner = self._build_gradient_scanner(init_mf)
+            except RuntimeError as exc:
+                if backend == "gpu" and allow_gpu_fallback and self._is_gpu_runtime_error(exc):
+                    logger.warning(
+                        "GPU initialization failed (%s); falling back to CPU for this segment.",
+                        exc,
+                    )
+                    backend = "cpu"
+                    platform_kwargs = {}
+                    scanner = None
+                else:
+                    raise
 
         for step_idx in range(1, total_steps + 1):
             iter_state = PySCFState(
@@ -279,29 +316,49 @@ class PySCFRunner(Runner):
             )
             mol = self._build_molecule(iter_state)
 
-            if scanner is None:
-                mf = self._build_mean_field(mol, iter_state)
-                mf = self._configure_hardware(
-                    mf, backend=backend, platform_kwargs=platform_kwargs
-                )
-                energy = mf.kernel()
-                gradients = np.asarray(mf.nuc_grad_method().kernel(), dtype=float)
-                density_matrix = np.asarray(mf.make_rdm1(), dtype=float)
-            else:
-                energy, gradients = scanner(mol)
-                gradients = np.asarray(gradients, dtype=float)
-
-                scan_base = getattr(scanner, "base", None)
-                if scan_base is None or not hasattr(scan_base, "make_rdm1"):
-                    # conservative fallback if scanner wrapper does not expose base
+            try:
+                if scanner is None:
                     mf = self._build_mean_field(mol, iter_state)
                     mf = self._configure_hardware(
                         mf, backend=backend, platform_kwargs=platform_kwargs
                     )
-                    mf.kernel()
+                    energy = mf.kernel()
+                    gradients = np.asarray(mf.nuc_grad_method().kernel(), dtype=float)
                     density_matrix = np.asarray(mf.make_rdm1(), dtype=float)
                 else:
-                    density_matrix = np.asarray(scan_base.make_rdm1(), dtype=float)
+                    energy, gradients = scanner(mol)
+                    gradients = np.asarray(gradients, dtype=float)
+
+                    scan_base = getattr(scanner, "base", None)
+                    if scan_base is None or not hasattr(scan_base, "make_rdm1"):
+                        # conservative fallback if scanner wrapper does not expose base
+                        mf = self._build_mean_field(mol, iter_state)
+                        mf = self._configure_hardware(
+                            mf, backend=backend, platform_kwargs=platform_kwargs
+                        )
+                        mf.kernel()
+                        density_matrix = np.asarray(mf.make_rdm1(), dtype=float)
+                    else:
+                        density_matrix = np.asarray(scan_base.make_rdm1(), dtype=float)
+            except RuntimeError as exc:
+                if backend == "gpu" and allow_gpu_fallback and self._is_gpu_runtime_error(exc):
+                    logger.warning(
+                        "GPU execution failed (%s); retrying this step on CPU.",
+                        exc,
+                    )
+                    backend = "cpu"
+                    platform_kwargs = {}
+                    scanner = None
+
+                    mf = self._build_mean_field(mol, iter_state)
+                    mf = self._configure_hardware(
+                        mf, backend=backend, platform_kwargs=platform_kwargs
+                    )
+                    energy = mf.kernel()
+                    gradients = np.asarray(mf.nuc_grad_method().kernel(), dtype=float)
+                    density_matrix = np.asarray(mf.make_rdm1(), dtype=float)
+                else:
+                    raise
 
             density_grid, density_origin, density_spacing = self._compute_density_grid(
                 mol, density_matrix, positions

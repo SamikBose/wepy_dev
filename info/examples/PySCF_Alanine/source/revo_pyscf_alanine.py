@@ -2,6 +2,7 @@
 
 # Standard Library
 import argparse
+import importlib.util
 import tempfile
 
 # Third Party Library
@@ -125,6 +126,7 @@ def main():
     parser.add_argument("--num-workers", type=int, default=1)
     parser.add_argument("--num-threads", type=int, default=1)
     parser.add_argument("--device-ids", type=int, nargs="*", default=None)
+    parser.add_argument("--gpu-fallback-cpu", action="store_true")
     parser.add_argument("--dash-path", type=str, default="alanine_pyscf.dash.org")
     args = parser.parse_args()
 
@@ -135,6 +137,7 @@ def main():
         positions,
         n_walkers=args.n_walkers,
         density_grid_shape=density_grid_shape,
+        gpu_fallback_cpu_on_error=args.gpu_fallback_cpu,
     )
 
     runner = PySCFRunner(
@@ -145,6 +148,7 @@ def main():
         backend=args.backend,
         use_scf_scanner=not args.disable_scanner,
         density_grid_shape=density_grid_shape,
+        gpu_fallback_cpu_on_error=args.gpu_fallback_cpu,
     )
 
     resampler = build_revo_resampler(init_state=walkers[0].state)
@@ -163,16 +167,31 @@ def main():
     )
 
     if args.parallel_backend == "gpu":
-        if args.device_ids is None:
-            device_ids = list(range(args.num_workers))
+        if importlib.util.find_spec("cupy") is None:
+            if args.gpu_fallback_cpu:
+                print("CuPy not found; falling back to CPU walker parallelization")
+                mapper = PySCFCPUTaskMapper(
+                    num_workers=args.num_workers,
+                    num_threads=args.num_threads,
+                )
+                args.parallel_backend = "cpu"
+            else:
+                raise SystemExit(
+                    "GPU backend requested but CuPy is not installed. "
+                    "Install a CUDA-matched CuPy package (e.g. cupy-cuda12x) "
+                    "or rerun with --parallel-backend cpu."
+                )
         else:
-            device_ids = args.device_ids
+            if args.device_ids is None:
+                device_ids = list(range(args.num_workers))
+            else:
+                device_ids = args.device_ids
 
-        mapper = PySCFGPUTaskMapper(
-            num_workers=args.num_workers,
-            platform="CUDA",
-            device_ids=device_ids,
-        )
+            mapper = PySCFGPUTaskMapper(
+                num_workers=args.num_workers,
+                platform="CUDA",
+                device_ids=device_ids,
+            )
     elif args.parallel_backend == "cpu":
         mapper = PySCFCPUTaskMapper(
             num_workers=args.num_workers,

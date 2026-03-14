@@ -45,6 +45,8 @@ class _FakeGradients(object):
         mf = self._mf
 
         def _scanner(_mol):
+            if getattr(mf, "_on_gpu", False) and getattr(mf, "_gpu_runtime_fail", False):
+                raise RuntimeError("failed in block_diag kernel")
             return self._energy, self._gradients
 
         _scanner.base = mf
@@ -52,11 +54,15 @@ class _FakeGradients(object):
 
 
 class _FakeMF(object):
-    def __init__(self, gradients, energy, supports_gpu=True):
+    def __init__(self, gradients, energy, supports_gpu=True, missing_cupy=False, gpu_runtime_fail=False):
         self._gradients = gradients
         self._energy = energy
         self._supports_gpu = supports_gpu
+        self._missing_cupy = missing_cupy
+        self._gpu_runtime_fail = gpu_runtime_fail
         self.xc = None
+        self._gpu_runtime_fail = gpu_runtime_fail
+        self._on_gpu = False
 
     def kernel(self):
         return self._energy
@@ -68,30 +74,35 @@ class _FakeMF(object):
         return np.eye(1, dtype=float)
 
     def to_gpu(self):
+        if self._missing_cupy:
+            raise ModuleNotFoundError("No module named cupy", name="cupy")
         if not self._supports_gpu:
             raise AttributeError("no GPU support")
+        self._on_gpu = True
         return self
 
 
 class _FakeModuleFactory(object):
-    def __init__(self, gradients, energy, supports_gpu=True):
+    def __init__(self, gradients, energy, supports_gpu=True, missing_cupy=False, gpu_runtime_fail=False):
         self._gradients = gradients
         self._energy = energy
         self._supports_gpu = supports_gpu
+        self._missing_cupy = missing_cupy
+        self._gpu_runtime_fail = gpu_runtime_fail
 
     def gto(self):
         return SimpleNamespace(M=lambda **kwargs: kwargs)
 
     def scf(self):
         return SimpleNamespace(
-            RHF=lambda mol: _FakeMF(self._gradients, self._energy, self._supports_gpu),
-            UHF=lambda mol: _FakeMF(self._gradients, self._energy, self._supports_gpu),
+            RHF=lambda mol: _FakeMF(self._gradients, self._energy, self._supports_gpu, self._missing_cupy, self._gpu_runtime_fail),
+            UHF=lambda mol: _FakeMF(self._gradients, self._energy, self._supports_gpu, self._missing_cupy, self._gpu_runtime_fail),
         )
 
     def dft(self):
         return SimpleNamespace(
-            RKS=lambda mol: _FakeMF(self._gradients, self._energy, self._supports_gpu),
-            UKS=lambda mol: _FakeMF(self._gradients, self._energy, self._supports_gpu),
+            RKS=lambda mol: _FakeMF(self._gradients, self._energy, self._supports_gpu, self._missing_cupy, self._gpu_runtime_fail),
+            UKS=lambda mol: _FakeMF(self._gradients, self._energy, self._supports_gpu, self._missing_cupy, self._gpu_runtime_fail),
         )
 
     def numint(self):
@@ -204,6 +215,73 @@ def test_gpu_backend_requires_to_gpu(monkeypatch):
     )
 
     with pytest.raises(AttributeError):
+        runner.run_segment(walker, 1)
+
+
+
+
+def test_gpu_backend_missing_cupy_gives_actionable_error(monkeypatch):
+    _patch_imports(
+        monkeypatch,
+        _FakeModuleFactory(
+            gradients=np.zeros((1, 3)),
+            energy=0.0,
+            supports_gpu=True,
+            missing_cupy=True,
+        ),
+    )
+
+    runner = PySCFRunner(backend="gpu")
+    walker = Walker(
+        WalkerState(symbols=["H"], positions=np.array([[0.0, 0.0, 0.0]])),
+        1.0,
+    )
+
+    with pytest.raises(RuntimeError, match="CuPy"):
+        runner.run_segment(walker, 1)
+
+
+
+
+def test_gpu_runtime_error_can_fallback_to_cpu(monkeypatch):
+    _patch_imports(
+        monkeypatch,
+        _FakeModuleFactory(
+            gradients=np.zeros((1, 3)),
+            energy=-0.1,
+            supports_gpu=True,
+            gpu_runtime_fail=True,
+        ),
+    )
+
+    runner = PySCFRunner(backend="gpu", gpu_fallback_cpu_on_error=True)
+    walker = Walker(
+        WalkerState(symbols=["H"], positions=np.array([[0.0, 0.0, 0.0]])),
+        1.0,
+    )
+
+    new_walker = runner.run_segment(walker, 1)
+    assert float(new_walker.state["energy"][0]) == -0.1
+
+
+def test_gpu_runtime_error_without_fallback_raises(monkeypatch):
+    _patch_imports(
+        monkeypatch,
+        _FakeModuleFactory(
+            gradients=np.zeros((1, 3)),
+            energy=-0.1,
+            supports_gpu=True,
+            gpu_runtime_fail=True,
+        ),
+    )
+
+    runner = PySCFRunner(backend="gpu", gpu_fallback_cpu_on_error=False)
+    walker = Walker(
+        WalkerState(symbols=["H"], positions=np.array([[0.0, 0.0, 0.0]])),
+        1.0,
+    )
+
+    with pytest.raises(RuntimeError, match="failed in block_diag kernel"):
         runner.run_segment(walker, 1)
 
 
