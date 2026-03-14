@@ -137,7 +137,6 @@ def main():
         positions,
         n_walkers=args.n_walkers,
         density_grid_shape=density_grid_shape,
-        gpu_fallback_cpu_on_error=args.gpu_fallback_cpu,
     )
 
     runner = PySCFRunner(
@@ -148,7 +147,6 @@ def main():
         backend=args.backend,
         use_scf_scanner=not args.disable_scanner,
         density_grid_shape=density_grid_shape,
-        gpu_fallback_cpu_on_error=args.gpu_fallback_cpu,
     )
 
     resampler = build_revo_resampler(init_state=walkers[0].state)
