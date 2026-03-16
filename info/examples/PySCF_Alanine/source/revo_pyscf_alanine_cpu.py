@@ -1,8 +1,10 @@
-"""Set up a REVO simulation with PySCF dynamics for alanine dipeptide."""
+"""CPU-only REVO/PySCF alanine dipeptide example.
+
+This version uses a separate `pyscf_input.py` file for all PySCF/simulation
+parameters and performs walker-level CPU parallelization with TaskMapper.
+"""
 
 # Standard Library
-import argparse
-import importlib.util
 import tempfile
 
 # Third Party Library
@@ -10,18 +12,13 @@ import mdtraj as mdj
 import numpy as np
 
 # First Party Library
+from pyscf_input import CONFIG
 from wepy.boundary_conditions.boundary import NoBC
 from wepy.reporter.dashboard import DashboardReporter
 from wepy.reporter.pyscf import PySCFHDF5Reporter, PySCFRunnerDashboardSection
 from wepy.resampling.distances.pyscf import QMGridDensityDistance
 from wepy.resampling.resamplers.revo import REVOResampler
-from wepy.runners.pyscf import (
-    PySCFCPUTaskMapper,
-    PySCFGPUTaskMapper,
-    PySCFRunner,
-    PySCFState,
-    PySCFWalker,
-)
+from wepy.runners.pyscf import PySCFCPUTaskMapper, PySCFRunner, PySCFState, PySCFWalker
 from wepy.sim_manager import Manager
 from wepy.util.mdtraj import mdtraj_to_json_topology
 
@@ -59,7 +56,6 @@ def parse_with_mdtraj_topology(pdb_text):
         traj = mdj.load_pdb(tmp.name)
 
     topology = traj.topology
-    # mdtraj stores positions in nm, convert to angstrom
     positions = np.asarray(traj.xyz[0], dtype=float) * 10.0
     symbols = [atom.element.symbol for atom in topology.atoms]
 
@@ -67,7 +63,12 @@ def parse_with_mdtraj_topology(pdb_text):
 
 
 def generate_initial_walkers(
-    symbols, positions, n_walkers=5, jitter=0.01, seed=13, density_grid_shape=(10, 10, 10)
+    symbols,
+    positions,
+    n_walkers,
+    density_grid_shape,
+    jitter,
+    seed,
 ):
     rng = np.random.default_rng(seed)
     walkers = []
@@ -80,8 +81,8 @@ def generate_initial_walkers(
             positions=noisy_positions,
             charge=0,
             spin=0,
-            basis="sto-3g",
-            method="RHF",
+            basis=CONFIG.basis,
+            method=CONFIG.method,
             unit="Angstrom",
             segment_step_idx=np.array([0], dtype=int),
             energy=np.array([np.nan]),
@@ -110,53 +111,34 @@ def build_revo_resampler(init_state):
 
 
 def main():
-    parser = argparse.ArgumentParser()
-    parser.add_argument("--n-walkers", type=int, default=5)
-    parser.add_argument("--n-cycles", type=int, default=2)
-    parser.add_argument("--segment-length", type=int, default=1)
-    parser.add_argument("--step-size", type=float, default=1e-4)
-    parser.add_argument("--basis", type=str, default="sto-3g")
-    parser.add_argument("--method", type=str, default="RHF")
-    parser.add_argument("--xc", type=str, default=None)
-    parser.add_argument("--backend", type=str, default="cpu", choices=["cpu", "gpu"])
-    parser.add_argument("--disable-scanner", action="store_true")
-    parser.add_argument("--density-grid-shape", type=int, nargs=3, default=(10, 10, 10))
-    parser.add_argument("--h5-path", type=str, default="alanine_pyscf.wepy.h5")
-    parser.add_argument("--parallel-backend", choices=["none", "cpu", "gpu"], default="none")
-    parser.add_argument("--num-workers", type=int, default=1)
-    parser.add_argument("--num-threads", type=int, default=1)
-    parser.add_argument("--device-ids", type=int, nargs="*", default=None)
-    parser.add_argument("--gpu-fallback-cpu", action="store_true")
-    parser.add_argument("--dash-path", type=str, default="alanine_pyscf.dash.org")
-    parser.add_argument("--overwrite", action="store_true")
-    args = parser.parse_args()
-
     mdj_top, symbols, positions = parse_with_mdtraj_topology(ALANINE_DIPEPTIDE_PDB)
-    density_grid_shape = tuple(args.density_grid_shape)
+
     walkers = generate_initial_walkers(
-        symbols,
-        positions,
-        n_walkers=args.n_walkers,
-        density_grid_shape=density_grid_shape,
+        symbols=symbols,
+        positions=positions,
+        n_walkers=CONFIG.n_walkers,
+        density_grid_shape=CONFIG.density_grid_shape,
+        jitter=CONFIG.jitter,
+        seed=CONFIG.seed,
     )
 
     runner = PySCFRunner(
-        basis=args.basis,
-        method=args.method,
-        xc=args.xc,
-        step_size=args.step_size,
-        backend=args.backend,
-        use_scf_scanner=not args.disable_scanner,
-        density_grid_shape=density_grid_shape,
+        basis=CONFIG.basis,
+        method=CONFIG.method,
+        xc=CONFIG.xc,
+        step_size=CONFIG.step_size,
+        backend="cpu",
+        use_scf_scanner=CONFIG.use_scf_scanner,
+        density_grid_shape=CONFIG.density_grid_shape,
     )
 
     resampler = build_revo_resampler(init_state=walkers[0].state)
 
     json_topology = mdtraj_to_json_topology(mdj_top)
-    output_mode = "w" if args.overwrite else "x"
+    output_mode = "w" if CONFIG.overwrite else "x"
 
     h5_reporter = PySCFHDF5Reporter(
-        file_paths=[args.h5_path],
+        file_paths=[CONFIG.h5_path],
         modes=[output_mode],
         topology=json_topology,
         resampler=resampler,
@@ -164,44 +146,16 @@ def main():
     )
 
     dash_reporter = DashboardReporter(
-        file_paths=[args.dash_path],
+        file_paths=[CONFIG.dash_path],
         modes=[output_mode],
         runner_dash=PySCFRunnerDashboardSection(runner=runner),
     )
 
-    if args.parallel_backend == "gpu":
-        if importlib.util.find_spec("cupy") is None:
-            if args.gpu_fallback_cpu:
-                print("CuPy not found; falling back to CPU walker parallelization")
-                mapper = PySCFCPUTaskMapper(
-                    num_workers=args.num_workers,
-                    num_threads=args.num_threads,
-                )
-                args.parallel_backend = "cpu"
-            else:
-                raise SystemExit(
-                    "GPU backend requested but CuPy is not installed. "
-                    "Install a CUDA-matched CuPy package (e.g. cupy-cuda12x) "
-                    "or rerun with --parallel-backend cpu."
-                )
-        else:
-            if args.device_ids is None:
-                device_ids = list(range(args.num_workers))
-            else:
-                device_ids = args.device_ids
-
-            mapper = PySCFGPUTaskMapper(
-                num_workers=args.num_workers,
-                platform="CUDA",
-                device_ids=device_ids,
-            )
-    elif args.parallel_backend == "cpu":
-        mapper = PySCFCPUTaskMapper(
-            num_workers=args.num_workers,
-            num_threads=args.num_threads,
-        )
-    else:
-        mapper = None
+    num_workers = CONFIG.cpu_num_workers or CONFIG.n_walkers
+    mapper = PySCFCPUTaskMapper(
+        num_workers=num_workers,
+        num_threads=CONFIG.cpu_num_threads_per_worker,
+    )
 
     sim_manager = Manager(
         walkers,
@@ -213,12 +167,13 @@ def main():
     )
 
     end_walkers, _ = sim_manager.run_simulation(
-        n_cycles=args.n_cycles,
-        segment_lengths=args.segment_length,
+        n_cycles=CONFIG.n_cycles,
+        segment_lengths=CONFIG.segment_length,
     )
 
-    print(f"Completed REVO/PySCF run with {len(end_walkers)} walkers")
-    print(f"Parallel backend: {args.parallel_backend}")
+    print(f"Completed REVO/PySCF CPU run with {len(end_walkers)} walkers")
+    print(f"CPU workers: {num_workers}")
+    print(f"Threads per worker: {CONFIG.cpu_num_threads_per_worker}")
     print("Final walker energies:", [walker.state["energy"] for walker in end_walkers])
 
 
