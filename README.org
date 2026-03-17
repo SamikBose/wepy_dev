@@ -1,15 +1,12 @@
-* Weighted Ensemble Python (wepy)
+* Weighted Ensemble Python (wepy) Development towards QM and QM/MM WE simultions
 
-  #+ATTR_HTML: title="Join the chat at https://gitter.im/wepy/general"
-  [[https://gitter.im/wepy/general?utm_source=badge&utm_medium=badge&utm_campaign=pr-badge&utm_content=badge][file:https://badges.gitter.im/wepy/general.svg]]
-
+ 
 [[./info/logo/wepy.svg]]
 
-# trying to make a zenodo badge but github doesn't support this
-# directly. Would have to add a separate build step for this.
-#+begin_export html
-<a href="https://doi.org/10.5281/zenodo.3973431"><img src="https://zenodo.org/badge/DOI/10.5281/zenodo.3973431.svg" alt="DOI"></a>
-#+end_export
+** This is a forked repo from DicksonLab's wepy software to run weighted ensemble simulation for QM and QMMM dynamics. 
+Here you can find specific runners and architecture required for running QM or QM/MM simulations in weighted ensemble formalism.
+
+The installation and documentation is same as main wepy repo:
 
 [[https://adicksonlab.github.io/wepy/index.html][Sphinx Documentation]]
 
@@ -19,9 +16,7 @@ Modular implementation and framework for running weighted ensemble (WE)
 simulations in pure python, where the aim is to have simple things
 simple and complicated things possible. The latter being the priority.
 
-The goal of the architecture is that it should be highly modular to
-allow extension, but provide a "killer app" for most uses that just
-works, no questions asked.
+If you have specific queiries regarding the qm or qmmm runners, please contact Samik Bose at bosesami@msu.edu
 
 Comes equipped with support for [[https://github.com/pandegroup/openmm][OpenMM]] molecular dynamics,
 parallelization using multiprocessing, the [[http://pubs.acs.org/doi/abs/10.1021/jp411479c][WExplore]] 
@@ -48,38 +43,17 @@ We recommend running this version of `wepy` in a conda environment using `python
   conda activate wepy
 #+END_SRC
 
-Next, install `wepy` with pip:
-
+The latest version of `wepy_dev` can be installed from the git repo source:
 #+BEGIN_SRC bash
-  pip install wepy
+  git clone https://github.com/SamikBose/wepy_dev.git 
+  cd wepy_dev
+  pip install -e . 
 #+END_SRC
 
-which will also install most dependencies.
+Please install pyscf and gpuscf via conda (or pip) from here: https://pyscf.org/user/install.html#install-with-conda
 
-Alternatively, the latest version of `wepy` can be installed from the git repo source:
-#+BEGIN_SRC bash
-  git clone https://github.com/ADicksonLab/wepy.git
-  cd wepy
-  pip install . 
-#+END_SRC
 
-The OpenMM package can then be installed using conda:
-
-#+BEGIN_SRC bash
-  conda install -c conda-forge openmm
-#+END_SRC
-
-Check its installed by running the command line interface:
-
-#+begin_src bash :tangle check_installation.bash
-wepy --help
-#+end_src
-
-** Citations
-
-Current [[https://zenodo.org/badge/latestdoi/101077926][Zenodo DOI]].
-
-Cite software as:
+Cite wepy software as:
 
 #+begin_example
 Samuel D. Lotz, Nazanin Donyapour, Alex Dickson, Tom Dixon, Nicole Roussey, & Rob Hall. (2020, August 4). ADicksonLab/wepy: 1.0.0 Major version release (Version v1.0.0). Zenodo. http://doi.org/10.5281/zenodo.3973431
