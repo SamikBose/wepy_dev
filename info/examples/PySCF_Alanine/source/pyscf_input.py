@@ -25,6 +25,7 @@ class PySCFInput:
     step_size: float = 1e-4
     # 'steepest_descent' performs deterministic energy minimization.
     # 'langevin' adds thermal noise to approximate finite-temperature sampling.
+    #dynamics_mode: str = "steepest_descent"
     dynamics_mode: str = "langevin"
     temperature_kelvin: float = 300.0
     use_scf_scanner: bool = True
