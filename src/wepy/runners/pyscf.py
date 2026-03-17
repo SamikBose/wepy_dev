@@ -66,13 +66,13 @@ class PySCFWalker(Walker):
 
 
 class PySCFRunner(Runner):
-    SUPPORTED_METHODS = ("RHF", "UHF", "RKS", "UKS")
+    SUPPORTED_METHODS = ("RHF", "UHF", "RKS", "UKS", "MP2", "DFMP2", "CCSD")
     SUPPORTED_DYNAMICS_MODES = ("steepest_descent", "langevin")
     BOLTZMANN_HARTREE_PER_K = 3.166811563e-6
 
     def __init__(
         self,
-        basis="sto-3g",
+        basis="6-31g*",
         method="RHF",
         xc=None,
         charge=0,
@@ -173,6 +173,66 @@ class PySCFRunner(Runner):
 
         return mf
 
+    def _build_reference_mean_field(self, mol, state):
+        state_data = state.dict()
+        ref_method = state_data.get("reference_method", None)
+        if ref_method is None:
+            ref_method = "UHF" if state_data.get("spin", self.spin) else "RHF"
+
+        ref_state = PySCFState(**{**state_data, "method": ref_method})
+        return self._build_mean_field(mol, ref_state)
+
+    def _method_supports_scanner(self, method):
+        return method in ("RHF", "UHF", "RKS", "UKS")
+
+    def _run_quantum_step(self, mol, state, backend, platform_kwargs):
+        state_data = state.dict()
+        method = state_data.get("method", self.method).upper()
+
+        if method in ("RHF", "UHF", "RKS", "UKS"):
+            mf = self._build_mean_field(mol, state)
+            mf = self._configure_hardware(
+                mf, backend=backend, platform_kwargs=platform_kwargs
+            )
+            energy = mf.kernel()
+            gradients = np.asarray(mf.nuc_grad_method().kernel(), dtype=float)
+            density_matrix = np.asarray(mf.make_rdm1(), dtype=float)
+            return energy, gradients, density_matrix
+
+        mf = self._build_reference_mean_field(mol, state)
+        mf = self._configure_hardware(
+            mf, backend=backend, platform_kwargs=platform_kwargs
+        )
+        mf.kernel()
+
+        if method in ("MP2", "DFMP2"):
+            pyscf_mp = importlib.import_module("pyscf.mp")
+            post_hf = pyscf_mp.MP2(mf)
+            if method == "DFMP2":
+                if not hasattr(post_hf, "density_fit"):
+                    raise ValueError("DFMP2 requested but MP2 object has no density_fit().")
+                post_hf = post_hf.density_fit()
+
+            post_hf.kernel()
+        elif method == "CCSD":
+            pyscf_cc = importlib.import_module("pyscf.cc")
+            post_hf = pyscf_cc.CCSD(mf)
+            post_hf.kernel()
+        else:
+            raise ValueError(f"Unsupported PySCF method '{method}'.")
+
+        energy = getattr(post_hf, "e_tot", None)
+        if energy is None:
+            energy = getattr(mf, "e_tot", None)
+
+        gradients = np.asarray(post_hf.nuc_grad_method().kernel(), dtype=float)
+        if hasattr(post_hf, "make_rdm1"):
+            density_matrix = np.asarray(post_hf.make_rdm1(), dtype=float)
+        else:
+            density_matrix = np.asarray(mf.make_rdm1(), dtype=float)
+
+        return energy, gradients, density_matrix
+
     def _configure_hardware(self, mf, backend="cpu", platform_kwargs=None):
         platform_kwargs = platform_kwargs or {}
 
@@ -196,6 +256,10 @@ class PySCFRunner(Runner):
                             "(e.g. cupy-cuda12x) or run with CPU backend."
                         ) from exc
                     raise
+                except AttributeError as exc:
+                    raise RuntimeError(
+                        "Requested GPU backend but PySCF mean-field object does not support to_gpu()."
+                    ) from exc
             else:
                 raise RuntimeError(
                     "Requested GPU backend but PySCF mean-field object does not support to_gpu()."
@@ -302,7 +366,9 @@ class PySCFRunner(Runner):
             "gpu_fallback_cpu_on_error", self.gpu_fallback_cpu_on_error
         )
 
-        if total_steps > 0 and self.use_scf_scanner:
+        state_method = state_data.get("method", self.method).upper()
+
+        if total_steps > 0 and self.use_scf_scanner and self._method_supports_scanner(state_method):
             init_state = PySCFState(
                 **{**state_data, "positions": positions, "segment_step_idx": 0}
             )
@@ -333,13 +399,9 @@ class PySCFRunner(Runner):
 
             try:
                 if scanner is None:
-                    mf = self._build_mean_field(mol, iter_state)
-                    mf = self._configure_hardware(
-                        mf, backend=backend, platform_kwargs=platform_kwargs
+                    energy, gradients, density_matrix = self._run_quantum_step(
+                        mol, iter_state, backend=backend, platform_kwargs=platform_kwargs
                     )
-                    energy = mf.kernel()
-                    gradients = np.asarray(mf.nuc_grad_method().kernel(), dtype=float)
-                    density_matrix = np.asarray(mf.make_rdm1(), dtype=float)
                 else:
                     energy, gradients = scanner(mol)
                     gradients = np.asarray(gradients, dtype=float)
@@ -365,13 +427,9 @@ class PySCFRunner(Runner):
                     platform_kwargs = {}
                     scanner = None
 
-                    mf = self._build_mean_field(mol, iter_state)
-                    mf = self._configure_hardware(
-                        mf, backend=backend, platform_kwargs=platform_kwargs
+                    energy, gradients, density_matrix = self._run_quantum_step(
+                        mol, iter_state, backend=backend, platform_kwargs=platform_kwargs
                     )
-                    energy = mf.kernel()
-                    gradients = np.asarray(mf.nuc_grad_method().kernel(), dtype=float)
-                    density_matrix = np.asarray(mf.make_rdm1(), dtype=float)
                 else:
                     raise
 

@@ -1,4 +1,4 @@
-"""Run REVO/PySCF dynamics for a hydrogen-bonded water dimer.
+"""Run REVO/PySCF dynamics for a hydrogen-bonded water dimer (RKS/M06 preset).
 
 This example uses the proton-transfer reaction coordinate as the REVO distance
 metric:
@@ -108,7 +108,7 @@ def main():
     )
     parser.add_argument("--temperature-kelvin", type=float, default=300.0)
     parser.add_argument("--basis", type=str, default="6-31g*")
-    parser.add_argument("--method", type=str, default="RHF", choices=["RHF", "UHF", "RKS", "UKS", "MP2", "DFMP2", "CCSD"])
+    parser.add_argument("--method", type=str, default="RKS", choices=["RKS", "UKS"])
     parser.add_argument("--xc", type=str, default="m06")
     parser.add_argument("--disable-scanner", action="store_true")
     parser.add_argument("--h5-path", type=str, default="waterdimer_pyscf.wepy.h5")

@@ -19,13 +19,14 @@ class PySCFInput:
     seed: int = 13
 
     # PySCF runner parameters
-    basis: str = "sto-3g"
+    basis: str = "6-31g*"
     method: str = "RHF"
-    xc: Optional[str] = None
+    # Allowed methods include RHF/UHF, RKS/UKS, MP2/DFMP2, and CCSD.
+    xc: Optional[str] = "m06"
     step_size: float = 1e-4
     # 'steepest_descent' performs deterministic energy minimization.
     # 'langevin' adds thermal noise to approximate finite-temperature sampling.
-    dynamics_mode: str = "langevin"
+    dynamics_mode: str = "steepest_descent"
     temperature_kelvin: float = 300.0
     use_scf_scanner: bool = True
     density_grid_shape: Tuple[int, int, int] = (10, 10, 10)

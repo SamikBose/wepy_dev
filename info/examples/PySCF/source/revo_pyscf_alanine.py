@@ -122,9 +122,9 @@ def main():
         choices=["steepest_descent", "langevin"],
     )
     parser.add_argument("--temperature-kelvin", type=float, default=300.0)
-    parser.add_argument("--basis", type=str, default="sto-3g")
-    parser.add_argument("--method", type=str, default="RHF")
-    parser.add_argument("--xc", type=str, default=None)
+    parser.add_argument("--basis", type=str, default="6-31g*")
+    parser.add_argument("--method", type=str, default="RHF", choices=["RHF", "UHF", "RKS", "UKS", "MP2", "DFMP2", "CCSD"])
+    parser.add_argument("--xc", type=str, default="m06")
     parser.add_argument("--backend", type=str, default="cpu", choices=["cpu", "gpu"])
     parser.add_argument("--disable-scanner", action="store_true")
     parser.add_argument("--density-grid-shape", type=int, nargs=3, default=(10, 10, 10))

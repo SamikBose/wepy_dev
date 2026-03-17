@@ -1,4 +1,4 @@
-"""Run REVO/PySCF dynamics for a hydrogen-bonded water dimer.
+"""Run REVO/PySCF dynamics for a hydrogen-bonded water dimer (RHF preset).
 
 This example uses the proton-transfer reaction coordinate as the REVO distance
 metric:

@@ -63,6 +63,7 @@ class _FakeMF(object):
         self.xc = None
         self._gpu_runtime_fail = gpu_runtime_fail
         self._on_gpu = False
+        self.e_tot = energy
 
     def kernel(self):
         return self._energy
@@ -80,6 +81,32 @@ class _FakeMF(object):
             raise AttributeError("no GPU support")
         self._on_gpu = True
         return self
+
+
+
+
+class _FakePostHF(object):
+    def __init__(self, mf):
+        self._mf = mf
+        self.e_tot = mf._energy - 0.01
+
+    def kernel(self):
+        return self.e_tot
+
+    def nuc_grad_method(self):
+        return _FakeGradients(self._mf._gradients, self.e_tot, self)
+
+    def make_rdm1(self):
+        return np.eye(1, dtype=float)
+
+
+class _FakeMP2(_FakePostHF):
+    def density_fit(self):
+        return self
+
+
+class _FakeCCSD(_FakePostHF):
+    pass
 
 
 class _FakeModuleFactory(object):
@@ -105,6 +132,12 @@ class _FakeModuleFactory(object):
             UKS=lambda mol: _FakeMF(self._gradients, self._energy, self._supports_gpu, self._missing_cupy, self._gpu_runtime_fail),
         )
 
+    def mp(self):
+        return SimpleNamespace(MP2=lambda mf: _FakeMP2(mf))
+
+    def cc(self):
+        return SimpleNamespace(CCSD=lambda mf: _FakeCCSD(mf))
+
     def numint(self):
         return _FakeNumInt()
 
@@ -119,6 +152,10 @@ def _patch_imports(monkeypatch, factory):
             return factory.dft()
         if name == "pyscf.dft.numint":
             return factory.numint()
+        if name == "pyscf.mp":
+            return factory.mp()
+        if name == "pyscf.cc":
+            return factory.cc()
         raise ValueError(name)
 
     monkeypatch.setattr("wepy.runners.pyscf.importlib.import_module", _fake_import)
@@ -214,7 +251,7 @@ def test_gpu_backend_requires_to_gpu(monkeypatch):
         1.0,
     )
 
-    with pytest.raises(AttributeError):
+    with pytest.raises(RuntimeError, match="does not support to_gpu"):
         runner.run_segment(walker, 1)
 
 
@@ -409,3 +446,36 @@ def test_langevin_mode_is_stochastic_and_seeded(monkeypatch):
 def test_invalid_dynamics_mode_raises():
     with pytest.raises(ValueError, match="Unsupported PySCF dynamics mode"):
         PySCFRunner(dynamics_mode="not-a-mode")
+
+
+def test_mp2_method_runs_with_reference_hf(monkeypatch):
+    gradients = np.array([[0.1, 0.0, 0.0]])
+    _patch_imports(monkeypatch, _FakeModuleFactory(gradients=gradients, energy=-1.0))
+
+    runner = PySCFRunner(method="MP2", step_size=0.1)
+    walker = Walker(WalkerState(symbols=["H"], positions=np.array([[0.0, 0.0, 0.0]])), 1.0)
+
+    new_walker = runner.run_segment(walker, 1)
+    assert float(new_walker.state["energy"][0]) < -1.0
+
+
+def test_ccsd_method_runs_with_reference_hf(monkeypatch):
+    gradients = np.array([[0.1, 0.0, 0.0]])
+    _patch_imports(monkeypatch, _FakeModuleFactory(gradients=gradients, energy=-1.0))
+
+    runner = PySCFRunner(method="CCSD", step_size=0.1)
+    walker = Walker(WalkerState(symbols=["H"], positions=np.array([[0.0, 0.0, 0.0]])), 1.0)
+
+    new_walker = runner.run_segment(walker, 1)
+    assert float(new_walker.state["energy"][0]) < -1.0
+
+
+def test_dfmp2_method_runs(monkeypatch):
+    gradients = np.array([[0.1, 0.0, 0.0]])
+    _patch_imports(monkeypatch, _FakeModuleFactory(gradients=gradients, energy=-1.0))
+
+    runner = PySCFRunner(method="DFMP2", step_size=0.1)
+    walker = Walker(WalkerState(symbols=["H"], positions=np.array([[0.0, 0.0, 0.0]])), 1.0)
+
+    new_walker = runner.run_segment(walker, 1)
+    assert float(new_walker.state["energy"][0]) < -1.0
