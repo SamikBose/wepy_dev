@@ -11,7 +11,7 @@ from typing import Optional, Tuple
 class PySCFInput:
     # Simulation size
     n_walkers: int = 5
-    n_cycles: int = 2
+    n_cycles: int = 10
     segment_length: int = 1
 
     # Walker initialization
@@ -19,14 +19,14 @@ class PySCFInput:
     seed: int = 13
 
     # PySCF runner parameters
-    basis: str = "6-31g*"
+    basis: str = "sto-3g"
     method: str = "RHF"
-    # Allowed methods include RHF/UHF, RKS/UKS, MP2/DFMP2, and CCSD.
-    xc: Optional[str] = "m06"
+    xc: Optional[str] = None
     step_size: float = 1e-4
     # 'steepest_descent' performs deterministic energy minimization.
     # 'langevin' adds thermal noise to approximate finite-temperature sampling.
-    dynamics_mode: str = "steepest_descent"
+    #dynamics_mode: str = "steepest_descent"
+    dynamics_mode: str = "langevin"
     temperature_kelvin: float = 300.0
     use_scf_scanner: bool = True
     density_grid_shape: Tuple[int, int, int] = (10, 10, 10)
@@ -39,10 +39,8 @@ class PySCFInput:
     cpu_num_threads_per_worker: int = 1
 
     # Output control
-    h5_path: str = f"waterdimer_cpu_{n_walkers}W_{n_cycles}C_{dynamics_mode}.wepy.h5"
-    dash_path: str = f"waterdimer_cpu_{n_walkers}W_{n_cycles}C_{dynamics_mode}.dash.org"
-    #h5_path: str = "alanine_pyscf_cpu.wepy.h5"
-    #dash_path: str = "alanine_pyscf_cpu.dash.org"
+    h5_path: str = f"alanine_cpu_{n_walkers}W_{n_cycles}C_{dynamics_mode}.wepy.h5"
+    dash_path: str = f"alanine_cpu_{n_walkers}W_{n_cycles}C_{dynamics_mode}.dash.org"
     overwrite: bool = True
 
 
