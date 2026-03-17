@@ -127,6 +127,8 @@ def main():
         method=CONFIG.method,
         xc=CONFIG.xc,
         step_size=CONFIG.step_size,
+        dynamics_mode=CONFIG.dynamics_mode,
+        temperature_kelvin=CONFIG.temperature_kelvin,
         backend="cpu",
         use_scf_scanner=CONFIG.use_scf_scanner,
         density_grid_shape=CONFIG.density_grid_shape,

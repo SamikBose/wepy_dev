@@ -14,11 +14,13 @@ class PySCFRunnerDashboardSection(RunnerDashboardSection):
 Runner: {{ name }}
 
 Backend: {{ backend }}
+Dynamics mode: {{ dynamics_mode }}
+Temperature (K): {{ temperature_kelvin }}
 Step size: {{ step_size }}
 Average Energy: {{ avg_energy }}
 """
 
-    def __init__(self, runner=None, step_size=None, backend="cpu", **kwargs):
+    def __init__(self, runner=None, step_size=None, backend="cpu", dynamics_mode="steepest_descent", temperature_kelvin=None, **kwargs):
         if "name" not in kwargs:
             kwargs["name"] = "PySCFRunner"
 
@@ -27,9 +29,13 @@ Average Energy: {{ avg_energy }}
         if runner is None:
             self.step_size = step_size
             self.backend = backend
+            self.dynamics_mode = dynamics_mode
+            self.temperature_kelvin = temperature_kelvin
         else:
             self.step_size = runner.step_size
             self.backend = runner.backend
+            self.dynamics_mode = getattr(runner, "dynamics_mode", "steepest_descent")
+            self.temperature_kelvin = getattr(runner, "temperature_kelvin", None)
 
         self._energies = []
 
@@ -54,6 +60,8 @@ Average Energy: {{ avg_energy }}
             {
                 "backend": self.backend,
                 "step_size": self.step_size,
+                "dynamics_mode": self.dynamics_mode,
+                "temperature_kelvin": self.temperature_kelvin,
                 "avg_energy": avg_energy,
             }
         )

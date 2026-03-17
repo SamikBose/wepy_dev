@@ -115,6 +115,13 @@ def main():
     parser.add_argument("--n-cycles", type=int, default=2)
     parser.add_argument("--segment-length", type=int, default=1)
     parser.add_argument("--step-size", type=float, default=1e-4)
+    parser.add_argument(
+        "--dynamics-mode",
+        type=str,
+        default="steepest_descent",
+        choices=["steepest_descent", "langevin"],
+    )
+    parser.add_argument("--temperature-kelvin", type=float, default=300.0)
     parser.add_argument("--basis", type=str, default="sto-3g")
     parser.add_argument("--method", type=str, default="RHF")
     parser.add_argument("--xc", type=str, default=None)
@@ -145,6 +152,8 @@ def main():
         method=args.method,
         xc=args.xc,
         step_size=args.step_size,
+        dynamics_mode=args.dynamics_mode,
+        temperature_kelvin=args.temperature_kelvin,
         backend=args.backend,
         use_scf_scanner=not args.disable_scanner,
         density_grid_shape=density_grid_shape,

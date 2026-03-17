@@ -12,7 +12,12 @@ from wepy.runners.pyscf import PySCFState, PySCFWalker
 
 
 def test_dashboard_section_tracks_energy():
-    section = PySCFRunnerDashboardSection(step_size=1e-3, backend="cpu")
+    section = PySCFRunnerDashboardSection(
+        step_size=1e-3,
+        backend="cpu",
+        dynamics_mode="langevin",
+        temperature_kelvin=300.0,
+    )
 
     walkers = [
         PySCFWalker(
@@ -30,6 +35,8 @@ def test_dashboard_section_tracks_energy():
 
     assert fields["avg_energy"] == -1.0
     assert fields["backend"] == "cpu"
+    assert fields["dynamics_mode"] == "langevin"
+    assert fields["temperature_kelvin"] == 300.0
 
 
 def test_hdf5_reporter_defaults():

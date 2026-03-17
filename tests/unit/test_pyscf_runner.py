@@ -360,3 +360,52 @@ def test_task_mapper_convenience_classes():
         assert "device_ids" in str(exc)
     else:
         raise AssertionError("Expected ValueError when no device_ids are provided")
+
+
+
+
+def test_steepest_descent_remains_deterministic(monkeypatch):
+    gradients = np.array([[1.0, -2.0, 0.5]])
+    _patch_imports(monkeypatch, _FakeModuleFactory(gradients=gradients, energy=-1.0))
+
+    runner = PySCFRunner(step_size=0.1, dynamics_mode="steepest_descent", temperature_kelvin=1200.0)
+    walker = Walker(
+        WalkerState(symbols=["H"], positions=np.array([[0.0, 0.0, 0.0]])),
+        1.0,
+    )
+
+    new_walker = runner.run_segment(walker, 1)
+    np.testing.assert_allclose(new_walker.state["positions"], np.array([[-0.1, 0.2, -0.05]]))
+
+def test_langevin_mode_is_stochastic_and_seeded(monkeypatch):
+    gradients = np.array([[0.0, 0.0, 0.0]])
+    _patch_imports(monkeypatch, _FakeModuleFactory(gradients=gradients, energy=-1.0))
+
+    walker = Walker(
+        WalkerState(symbols=["H"], positions=np.array([[0.0, 0.0, 0.0]])),
+        1.0,
+    )
+
+    runner_a = PySCFRunner(
+        step_size=0.1,
+        dynamics_mode="langevin",
+        temperature_kelvin=300.0,
+        random_seed=7,
+    )
+    runner_b = PySCFRunner(
+        step_size=0.1,
+        dynamics_mode="langevin",
+        temperature_kelvin=300.0,
+        random_seed=7,
+    )
+
+    new_walker_a = runner_a.run_segment(walker, 1)
+    new_walker_b = runner_b.run_segment(walker, 1)
+
+    np.testing.assert_allclose(new_walker_a.state["positions"], new_walker_b.state["positions"])
+    assert not np.allclose(new_walker_a.state["positions"], np.zeros((1, 3)))
+
+
+def test_invalid_dynamics_mode_raises():
+    with pytest.raises(ValueError, match="Unsupported PySCF dynamics mode"):
+        PySCFRunner(dynamics_mode="not-a-mode")

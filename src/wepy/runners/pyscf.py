@@ -67,6 +67,8 @@ class PySCFWalker(Walker):
 
 class PySCFRunner(Runner):
     SUPPORTED_METHODS = ("RHF", "UHF", "RKS", "UKS")
+    SUPPORTED_DYNAMICS_MODES = ("steepest_descent", "langevin")
+    BOLTZMANN_HARTREE_PER_K = 3.166811563e-6
 
     def __init__(
         self,
@@ -77,6 +79,9 @@ class PySCFRunner(Runner):
         spin=0,
         unit="Angstrom",
         step_size=1e-3,
+        dynamics_mode="steepest_descent",
+        temperature_kelvin=300.0,
+        random_seed=None,
         backend="cpu",
         use_scf_scanner=True,
         density_grid_shape=(10, 10, 10),
@@ -90,6 +95,10 @@ class PySCFRunner(Runner):
         self.spin = spin
         self.unit = unit
         self.step_size = step_size
+        self.dynamics_mode = str(dynamics_mode).lower()
+        self.temperature_kelvin = float(temperature_kelvin)
+        self.random_seed = random_seed
+        self.rng = np.random.default_rng(random_seed)
         self.backend = backend
         self.use_scf_scanner = use_scf_scanner
         self.density_grid_shape = tuple(density_grid_shape)
@@ -100,6 +109,12 @@ class PySCFRunner(Runner):
             raise ValueError(
                 "Unsupported PySCF mean-field method "
                 f"'{self.method}'. Must be one of: {self.SUPPORTED_METHODS}"
+            )
+
+        if self.dynamics_mode not in self.SUPPORTED_DYNAMICS_MODES:
+            raise ValueError(
+                "Unsupported PySCF dynamics mode "
+                f"'{self.dynamics_mode}'. Must be one of: {self.SUPPORTED_DYNAMICS_MODES}"
             )
 
         self._cycle_backend = None
@@ -364,7 +379,7 @@ class PySCFRunner(Runner):
                 mol, density_matrix, positions
             )
 
-            positions = positions - self.step_size * gradients
+            positions = self._propagate_positions(positions, gradients)
             last_energy = float(energy)
             last_gradients = gradients
             last_density_matrix = density_matrix
@@ -388,6 +403,26 @@ class PySCFRunner(Runner):
         if isinstance(walker, PySCFWalker):
             return PySCFWalker(new_state, walker.weight)
         return Walker(new_state, walker.weight)
+
+    def _propagate_positions(self, positions, gradients):
+        """Update coordinates using either steepest descent or overdamped Langevin updates.
+
+        Notes
+        -----
+        ``steepest_descent`` is a deterministic geometry-relaxation update and does not
+        sample a finite-temperature ensemble.
+        ``langevin`` adds a stochastic term so trajectories include thermal fluctuations.
+        """
+
+        drift = self.step_size * gradients
+        if self.dynamics_mode == "steepest_descent":
+            return positions - drift
+
+        noise_scale = np.sqrt(
+            2.0 * self.BOLTZMANN_HARTREE_PER_K * self.temperature_kelvin * self.step_size
+        )
+        thermal_noise = self.rng.normal(0.0, noise_scale, size=positions.shape)
+        return positions - drift + thermal_noise
 
 
 class PySCFCPUWorker(Worker):
