@@ -106,7 +106,7 @@ def build_revo_resampler(init_state):
         merge_dist=0.5,
         char_dist=1.0,
         pmin=1e-12,
-        pmax=0.5,
+        pmax=0.99,
     )
 
 
