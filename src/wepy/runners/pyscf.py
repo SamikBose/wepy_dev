@@ -59,9 +59,7 @@ class PySCFState(WalkerState):
 
 class PySCFWalker(Walker):
     def __init__(self, state, weight):
-        assert isinstance(
-            state, PySCFState
-        ), "state must be an instance of PySCFState not {}".format(type(state))
+        assert isinstance(state, PySCFState), f"state must be an instance of PySCFState not {type(state)}"
         super().__init__(state, weight)
 
 
@@ -107,8 +105,7 @@ class PySCFRunner(Runner):
 
         if self.method not in self.SUPPORTED_METHODS:
             raise ValueError(
-                "Unsupported PySCF mean-field method "
-                f"'{self.method}'. Must be one of: {self.SUPPORTED_METHODS}"
+                f"Unsupported PySCF mean-field method '{self.method}'. Must be one of: {self.SUPPORTED_METHODS}"
             )
 
         if self.dynamics_mode not in self.SUPPORTED_DYNAMICS_MODES:
@@ -135,7 +132,7 @@ class PySCFRunner(Runner):
 
         symbols = state_data["symbols"]
         positions = np.asarray(state_data["positions"], dtype=float)
-        atom = [(symbol, tuple(coord)) for symbol, coord in zip(symbols, positions)]
+        atom = [(symbol, tuple(coord)) for symbol, coord in zip(symbols, positions, strict=True)]
 
         return pyscf_gto.M(
             atom=atom,
@@ -191,18 +188,14 @@ class PySCFRunner(Runner):
 
         if method in ("RHF", "UHF", "RKS", "UKS"):
             mf = self._build_mean_field(mol, state)
-            mf = self._configure_hardware(
-                mf, backend=backend, platform_kwargs=platform_kwargs
-            )
+            mf = self._configure_hardware(mf, backend=backend, platform_kwargs=platform_kwargs)
             energy = mf.kernel()
             gradients = np.asarray(mf.nuc_grad_method().kernel(), dtype=float)
             density_matrix = np.asarray(mf.make_rdm1(), dtype=float)
             return energy, gradients, density_matrix
 
         mf = self._build_reference_mean_field(mol, state)
-        mf = self._configure_hardware(
-            mf, backend=backend, platform_kwargs=platform_kwargs
-        )
+        mf = self._configure_hardware(mf, backend=backend, platform_kwargs=platform_kwargs)
         mf.kernel()
 
         if method in ("MP2", "DFMP2"):
@@ -261,9 +254,7 @@ class PySCFRunner(Runner):
                         "Requested GPU backend but PySCF mean-field object does not support to_gpu()."
                     ) from exc
             else:
-                raise RuntimeError(
-                    "Requested GPU backend but PySCF mean-field object does not support to_gpu()."
-                )
+                raise RuntimeError("Requested GPU backend but PySCF mean-field object does not support to_gpu().")
 
         return mf
 
@@ -287,15 +278,11 @@ class PySCFRunner(Runner):
         mins = np.min(positions, axis=0) - self.density_grid_padding
         maxs = np.max(positions, axis=0) + self.density_grid_padding
 
-        axes = [
-            np.linspace(mins[i], maxs[i], self.density_grid_shape[i]) for i in range(3)
-        ]
+        axes = [np.linspace(mins[i], maxs[i], self.density_grid_shape[i]) for i in range(3)]
         mesh = np.meshgrid(*axes, indexing="ij")
         coords = np.stack(mesh, axis=-1).reshape(-1, 3)
 
-        spacing = np.array(
-            [axes[i][1] - axes[i][0] if len(axes[i]) > 1 else 1.0 for i in range(3)]
-        )
+        spacing = np.array([axes[i][1] - axes[i][0] if len(axes[i]) > 1 else 1.0 for i in range(3)])
 
         return coords, mins, spacing
 
@@ -349,9 +336,7 @@ class PySCFRunner(Runner):
             raise ValueError("segment_length must be >= 0")
 
         backend = kwargs.get("backend", self._cycle_backend or self.backend)
-        platform_kwargs = kwargs.get(
-            "platform_kwargs", self._cycle_platform_kwargs or {}
-        )
+        platform_kwargs = kwargs.get("platform_kwargs", self._cycle_platform_kwargs or {})
 
         last_energy = state_data.get("energy", None)
         last_gradients = np.zeros_like(positions)
@@ -362,22 +347,16 @@ class PySCFRunner(Runner):
         segment_step_idx = 0
 
         scanner = None
-        allow_gpu_fallback = kwargs.get(
-            "gpu_fallback_cpu_on_error", self.gpu_fallback_cpu_on_error
-        )
+        allow_gpu_fallback = kwargs.get("gpu_fallback_cpu_on_error", self.gpu_fallback_cpu_on_error)
 
         state_method = state_data.get("method", self.method).upper()
 
         if total_steps > 0 and self.use_scf_scanner and self._method_supports_scanner(state_method):
-            init_state = PySCFState(
-                **{**state_data, "positions": positions, "segment_step_idx": 0}
-            )
+            init_state = PySCFState(**{**state_data, "positions": positions, "segment_step_idx": 0})
             init_mol = self._build_molecule(init_state)
             init_mf = self._build_mean_field(init_mol, init_state)
             try:
-                init_mf = self._configure_hardware(
-                    init_mf, backend=backend, platform_kwargs=platform_kwargs
-                )
+                init_mf = self._configure_hardware(init_mf, backend=backend, platform_kwargs=platform_kwargs)
                 scanner = self._build_gradient_scanner(init_mf)
             except RuntimeError as exc:
                 if backend == "gpu" and allow_gpu_fallback and self._is_gpu_runtime_error(exc):
@@ -392,9 +371,7 @@ class PySCFRunner(Runner):
                     raise
 
         for step_idx in range(1, total_steps + 1):
-            iter_state = PySCFState(
-                **{**state_data, "positions": positions, "segment_step_idx": step_idx}
-            )
+            iter_state = PySCFState(**{**state_data, "positions": positions, "segment_step_idx": step_idx})
             mol = self._build_molecule(iter_state)
 
             try:
@@ -410,9 +387,7 @@ class PySCFRunner(Runner):
                     if scan_base is None or not hasattr(scan_base, "make_rdm1"):
                         # conservative fallback if scanner wrapper does not expose base
                         mf = self._build_mean_field(mol, iter_state)
-                        mf = self._configure_hardware(
-                            mf, backend=backend, platform_kwargs=platform_kwargs
-                        )
+                        mf = self._configure_hardware(mf, backend=backend, platform_kwargs=platform_kwargs)
                         mf.kernel()
                         density_matrix = np.asarray(mf.make_rdm1(), dtype=float)
                     else:
@@ -433,9 +408,7 @@ class PySCFRunner(Runner):
                 else:
                     raise
 
-            density_grid, density_origin, density_spacing = self._compute_density_grid(
-                mol, density_matrix, positions
-            )
+            density_grid, density_origin, density_spacing = self._compute_density_grid(mol, density_matrix, positions)
 
             positions = self._propagate_positions(positions, gradients)
             last_energy = float(energy)
@@ -471,14 +444,11 @@ class PySCFRunner(Runner):
         sample a finite-temperature ensemble.
         ``langevin`` adds a stochastic term so trajectories include thermal fluctuations.
         """
-
         drift = self.step_size * gradients
         if self.dynamics_mode == "steepest_descent":
             return positions - drift
 
-        noise_scale = np.sqrt(
-            2.0 * self.BOLTZMANN_HARTREE_PER_K * self.temperature_kelvin * self.step_size
-        )
+        noise_scale = np.sqrt(2.0 * self.BOLTZMANN_HARTREE_PER_K * self.temperature_kelvin * self.step_size)
         thermal_noise = self.rng.normal(0.0, noise_scale, size=positions.shape)
         return positions - drift + thermal_noise
 
@@ -488,11 +458,7 @@ class PySCFCPUWorker(Worker):
     DEFAULT_NUM_THREADS = 1
 
     def __init__(self, *args, **kwargs):
-        if "num_threads" not in kwargs:
-            num_threads = self.DEFAULT_NUM_THREADS
-        else:
-            num_threads = kwargs.pop("num_threads")
-
+        num_threads = self.DEFAULT_NUM_THREADS if "num_threads" not in kwargs else kwargs.pop("num_threads")
         super().__init__(*args, num_threads=num_threads, **kwargs)
 
     def run_task(self, task):
