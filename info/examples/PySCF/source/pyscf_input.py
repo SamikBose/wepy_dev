@@ -1,4 +1,4 @@
-"""Input configuration for CPU-only REVO/PySCF alanine runs.
+"""Input configuration for CPU-only REVO/PySCF examples.
 
 Edit this file instead of passing command-line arguments.
 """
@@ -39,11 +39,23 @@ class PySCFInput:
     cpu_num_threads_per_worker: int = 1
 
     # Output control
-    h5_path: str = f"waterdimer_cpu_{n_walkers}W_{n_cycles}C_{dynamics_mode}.wepy.h5"
-    dash_path: str = f"waterdimer_cpu_{n_walkers}W_{n_cycles}C_{dynamics_mode}.dash.org"
-    #h5_path: str = "alanine_pyscf_cpu.wepy.h5"
-    #dash_path: str = "alanine_pyscf_cpu.dash.org"
+    h5_path: str = "alanine_pyscf_cpu.wepy.h5"
+    dash_path: str = "alanine_pyscf_cpu.dash.org"
     overwrite: bool = True
 
 
+@dataclass
+class WaterDimerInput(PySCFInput):
+    n_walkers: int = 8
+    n_cycles: int = 5
+    segment_length: int = 2
+    jitter: float = 0.005
+    method: str = "RHF"
+    xc: Optional[str] = "m06"
+    h5_path: str = "waterdimer_pyscf.wepy.h5"
+    dash_path: str = "waterdimer_pyscf.dash.org"
+
+
 CONFIG = PySCFInput()
+WATER_DIMER_RHF_CONFIG = WaterDimerInput(method="RHF", h5_path="waterdimer_rhf_pyscf.wepy.h5", dash_path="waterdimer_rhf_pyscf.dash.org")
+WATER_DIMER_RKS_M06_CONFIG = WaterDimerInput(method="RKS", xc="m06", h5_path="waterdimer_rks_m06_pyscf.wepy.h5", dash_path="waterdimer_rks_m06_pyscf.dash.org")
