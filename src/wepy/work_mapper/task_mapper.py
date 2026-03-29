@@ -191,13 +191,17 @@ class TaskMapper(ABCWorkerMapper):
 
             new_walkers = [None for _ in range(num_walkers)]
 
+            iterations = 0
+
             remaining = set(range(num_walkers))
             while remaining:
                 try:
+                    iterations += 1
                     walker_idx, result = results_queue.get(timeout=1.0)  # blocks, not busy
                 except pyq.Empty:
                     # no results yet, check for IRQ signals from still-pending walkers
                     for walker_idx in remaining:
+                        iterations += 1
                         if self._irq_parent_conns[walker_idx].poll():
                             irq = self._irq_parent_conns[walker_idx].recv()
 
@@ -296,6 +300,8 @@ class TaskMapper(ABCWorkerMapper):
                     self.force_shutdown()
 
                     logger.critical("Shutdown complete.")
+
+            print(f"Finished processing all walkers in {iterations} iterations.")
 
             # save the managed list of the recorded worker times locally
             for key, val in worker_segment_times.items():
