@@ -2,9 +2,9 @@
 outfile: scalene-profile.json # Output file name (default: scalene-profile.json)
 
 # Profiling modes (choose only one)
-cpu-only: true # CPU profiling only (faster)
+# cpu-only: true # CPU profiling only (faster)
 # gpu: true # Include GPU profiling
-# memory: true # Include memory profiling
+memory: true # Include memory profiling
 
 # Extra profiling options
 stacks: true # Collect stack traces
@@ -16,11 +16,11 @@ profile-all: true # Profile all code, not just target
 # profile-exclude: "tests,venv" # Exclude these paths
 profile-system-libraries: true # Profile Python system libraries and installed packages (default: false)
 
-# Performance tuning
-profile-interval: 0.1 # Time between samples in seconds
-cpu-percent-threshold: 1 # Min CPU% to report (default: 1)
-cpu-sampling-rate: 0.01 # Sampling interval in seconds (default: 0.01)
+# # Performance tuning
+# profile-interval: 0.1 # Time between samples in seconds
+# cpu-percent-threshold: 1 # Min CPU% to report (default: 1)
+# cpu-sampling-rate: 0.01 # Sampling interval in seconds (default: 0.01)
 
-# Memory profiling options
-malloc-threshold: 100 # Min allocations to report (default: 100)
-memory-leak-detector: true # Detect likely memory leaks (default: true)
+# # Memory profiling options
+# malloc-threshold: 100 # Min allocations to report (default: 100)
+# memory-leak-detector: true # Detect likely memory leaks (default: true)
