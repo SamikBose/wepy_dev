@@ -307,10 +307,10 @@ class TaskMapper(ABCWorkerMapper):
             for key, val in worker_segment_times.items():
                 self._worker_segment_times[key] = val
 
-            # wait for the processes to end
-            # for walker in self._walker_processes:
-            #     walker.join()
-            #     logger.info("Joined {}".format(walker.name))
+            # wait for the processes to end and ensure they have all exited
+            for walker in self._walker_processes:
+                walker.join()
+                logger.info(f"Joined walker process {walker.name}")
 
         # deinitialize the current walker processes
         self._walker_processes = None
