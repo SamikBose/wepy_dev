@@ -6,6 +6,7 @@ parameters and performs walker-level CPU parallelization with TaskMapper.
 
 # Standard Library
 import tempfile
+from time import perf_counter
 
 # Third Party Library
 import mdtraj as mdj
@@ -13,6 +14,7 @@ import numpy as np
 
 # First Party Library
 from pyscf_input import CONFIG
+
 from wepy.boundary_conditions.boundary import NoBC
 from wepy.reporter.dashboard import DashboardReporter
 from wepy.reporter.pyscf import PySCFHDF5Reporter, PySCFRunnerDashboardSection
@@ -168,12 +170,13 @@ def main():
         reporters=[h5_reporter, dash_reporter],
     )
 
+    time = perf_counter()
     end_walkers, _ = sim_manager.run_simulation(
         n_cycles=CONFIG.n_cycles,
         segment_lengths=CONFIG.segment_length,
     )
 
-    print(f"Completed REVO/PySCF CPU run with {len(end_walkers)} walkers")
+    print(f"Completed REVO/PySCF CPU run with {len(end_walkers)} walkers in {perf_counter() - time:.3f} seconds")
     print(f"CPU workers: {num_workers}")
     print(f"Threads per worker: {CONFIG.cpu_num_threads_per_worker}")
     print("Final walker energies:", [walker.state["energy"] for walker in end_walkers])
