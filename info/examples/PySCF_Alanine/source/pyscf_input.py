@@ -11,7 +11,7 @@ from typing import Optional, Tuple
 class PySCFInput:
     # Simulation size
     n_walkers: int = 5
-    n_cycles: int = 5
+    n_cycles: int = 10
     segment_length: int = 1
 
     # Walker initialization
