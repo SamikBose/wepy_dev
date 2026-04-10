@@ -229,10 +229,6 @@ class PySCFRunner(Runner):
     def _configure_hardware(self, mf, backend="cpu", platform_kwargs=None):
         platform_kwargs = platform_kwargs or {}
 
-        num_threads = platform_kwargs.get("Threads")
-        if num_threads is not None:
-            os.environ["OMP_NUM_THREADS"] = str(num_threads)
-
         if backend and str(backend).lower() == "gpu":
             device_id = platform_kwargs.get("DeviceIndex")
             if device_id is not None:
@@ -500,11 +496,10 @@ class PySCFGPUWalkerTaskProcess(WalkerTaskProcess):
 class PySCFCPUTaskMapper(TaskMapper):
     """Convenience TaskMapper for CPU walker-level parallelism."""
 
-    def __init__(self, num_workers=None, num_threads=1, **kwargs):
+    def __init__(self, num_workers=None, **kwargs):
         super().__init__(
             walker_task_type=PySCFCPUWalkerTaskProcess,
             num_workers=num_workers,
-            num_threads=num_threads,
             **kwargs,
         )
 
