@@ -141,19 +141,25 @@ def main():
     json_topology = mdtraj_to_json_topology(mdj_top)
     output_mode = "w" if CONFIG.overwrite else "x"
 
-    h5_reporter = PySCFHDF5Reporter(
-        file_paths=[CONFIG.h5_path],
-        modes=[output_mode],
-        topology=json_topology,
-        resampler=resampler,
-        boundary_conditions=NoBC(),
-    )
+    reporters = []
 
-    dash_reporter = DashboardReporter(
-        file_paths=[CONFIG.dash_path],
-        modes=[output_mode],
-        runner_dash=PySCFRunnerDashboardSection(runner=runner),
-    )
+    if CONFIG.write_h5:
+        h5_reporter = PySCFHDF5Reporter(
+            file_paths=[CONFIG.h5_path],
+            modes=[output_mode],
+            topology=json_topology,
+            resampler=resampler,
+            boundary_conditions=NoBC(),
+        )
+        reporters.append(h5_reporter)
+
+    if CONFIG.write_dash:
+        dash_reporter = DashboardReporter(
+            file_paths=[CONFIG.dash_path],
+            modes=[output_mode],
+            runner_dash=PySCFRunnerDashboardSection(runner=runner),
+        )
+        reporters.append(dash_reporter)
 
     num_workers = CONFIG.cpu_num_workers or CONFIG.n_walkers
     mapper = PySCFCPUTaskMapper(
@@ -167,7 +173,7 @@ def main():
         work_mapper=mapper,
         resampler=resampler,
         boundary_conditions=NoBC(),
-        reporters=[h5_reporter, dash_reporter],
+        reporters=reporters,
     )
 
     time = perf_counter()

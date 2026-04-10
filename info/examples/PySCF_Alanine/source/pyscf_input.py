@@ -39,8 +39,10 @@ class PySCFInput:
     cpu_num_threads_per_worker: int = 1
 
     # Output control
-    h5_path: str = f"alanine_cpu_{n_walkers}W_{n_cycles}C_{dynamics_mode}.wepy.h5"
-    dash_path: str = f"alanine_cpu_{n_walkers}W_{n_cycles}C_{dynamics_mode}.dash.org"
+    write_h5: bool = True
+    write_dash: bool = True
+    h5_path: str = f"alanine_cpu_{n_walkers}W_{n_cycles}C_{dynamics_mode}_{_omp_threads_env_var}T.wepy.h5"
+    dash_path: str = f"alanine_cpu_{n_walkers}W_{n_cycles}C_{dynamics_mode}_{_omp_threads_env_var}T.dash.org"
     overwrite: bool = True
 
 
