@@ -42,17 +42,14 @@ class PySCFInput:
     _omp_threads_env_var: str | None = os.environ.get("OMP_NUM_THREADS")
 
     # Output control
-    write_h5: bool = True
+    write_h5: bool = True # TODO: Add write control to other systems (just alanine right now)
     write_dash: bool = True
     h5_path: str = ""
     dash_path: str = ""
     overwrite: bool = True
 
     def __post_init__(self) -> None:
-        """Set default output paths based on the input parameters if not provided.
-
-        Need to do this in __post_init__ since we can't resolve the path names until other parameters are set.
-        """
+        """Set output paths; need to do this after initialization since we need to wait for parameters to be set."""
         filename_base = f"{self.system}_{self.backend}_{self.n_walkers}W_{self.n_cycles}C_{self.dynamics_mode}_{self._omp_threads_env_var}T"
         if not self.h5_path:
             self.h5_path = f"{filename_base}.wepy.h5"
