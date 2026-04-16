@@ -4,8 +4,14 @@ This version uses a separate `pyscf_input.py` file for all PySCF/simulation
 parameters and performs walker-level CPU parallelization with TaskMapper.
 """
 
+# Set the default number of threads before importing libraries
+import os
+
+os.environ.setdefault("OMP_NUM_THREADS", "1")  # Good default for PySCF CPU runs, but can be overridden by the user
+
 # Standard Library
 import tempfile
+from time import perf_counter
 
 # Third Party Library
 import mdtraj as mdj
@@ -13,6 +19,7 @@ import numpy as np
 
 # First Party Library
 from pyscf_input import CONFIG
+
 from wepy.boundary_conditions.boundary import NoBC
 from wepy.reporter.dashboard import DashboardReporter
 from wepy.reporter.pyscf import PySCFHDF5Reporter, PySCFRunnerDashboardSection
@@ -106,7 +113,7 @@ def build_revo_resampler(init_state):
         merge_dist=0.5,
         char_dist=1.0,
         pmin=1e-12,
-        pmax=0.5,
+        pmax=0.99,
     )
 
 
@@ -139,24 +146,29 @@ def main():
     json_topology = mdtraj_to_json_topology(mdj_top)
     output_mode = "w" if CONFIG.overwrite else "x"
 
-    h5_reporter = PySCFHDF5Reporter(
-        file_paths=[CONFIG.h5_path],
-        modes=[output_mode],
-        topology=json_topology,
-        resampler=resampler,
-        boundary_conditions=NoBC(),
-    )
+    reporters = []
 
-    dash_reporter = DashboardReporter(
-        file_paths=[CONFIG.dash_path],
-        modes=[output_mode],
-        runner_dash=PySCFRunnerDashboardSection(runner=runner),
-    )
+    if CONFIG.write_h5:
+        h5_reporter = PySCFHDF5Reporter(
+            file_paths=[CONFIG.h5_path],
+            modes=[output_mode],
+            topology=json_topology,
+            resampler=resampler,
+            boundary_conditions=NoBC(),
+        )
+        reporters.append(h5_reporter)
+
+    if CONFIG.write_dash:
+        dash_reporter = DashboardReporter(
+            file_paths=[CONFIG.dash_path],
+            modes=[output_mode],
+            runner_dash=PySCFRunnerDashboardSection(runner=runner),
+        )
+        reporters.append(dash_reporter)
 
     num_workers = CONFIG.cpu_num_workers or CONFIG.n_walkers
     mapper = PySCFCPUTaskMapper(
         num_workers=num_workers,
-        num_threads=CONFIG.cpu_num_threads_per_worker,
     )
 
     sim_manager = Manager(
@@ -165,17 +177,18 @@ def main():
         work_mapper=mapper,
         resampler=resampler,
         boundary_conditions=NoBC(),
-        reporters=[h5_reporter, dash_reporter],
+        reporters=reporters,
     )
 
+    time = perf_counter()
     end_walkers, _ = sim_manager.run_simulation(
         n_cycles=CONFIG.n_cycles,
         segment_lengths=CONFIG.segment_length,
     )
 
-    print(f"Completed REVO/PySCF CPU run with {len(end_walkers)} walkers")
+    print(f"Completed REVO/PySCF CPU run with {len(end_walkers)} walkers in {perf_counter() - time:.3f} seconds")
     print(f"CPU workers: {num_workers}")
-    print(f"Threads per worker: {CONFIG.cpu_num_threads_per_worker}")
+    print(f"Threads per worker: {CONFIG._omp_threads_env_var}")  # noqa: SLF001
     print("Final walker energies:", [walker.state["energy"] for walker in end_walkers])
 
 
