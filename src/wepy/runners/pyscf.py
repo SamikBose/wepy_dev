@@ -44,6 +44,12 @@ UNIT_NAMES = (
 )
 
 
+def to_numpy(x):
+    if hasattr(x, "get"):
+        x = x.get()
+    return np.asarray(x, dtype=float)
+
+
 class PySCFState(WalkerState):
     KEYS = KEYS
 
@@ -191,7 +197,7 @@ class PySCFRunner(Runner):
             mf = self._configure_hardware(mf, backend=backend, platform_kwargs=platform_kwargs)
             energy = mf.kernel()
             gradients = np.asarray(mf.nuc_grad_method().kernel(), dtype=float)
-            density_matrix = np.asarray(mf.make_rdm1(), dtype=float)
+            density_matrix =to_numpy(mf.make_rdm1())
             return energy, gradients, density_matrix
 
         mf = self._build_reference_mean_field(mol, state)
@@ -218,11 +224,11 @@ class PySCFRunner(Runner):
         if energy is None:
             energy = getattr(mf, "e_tot", None)
 
-        gradients = np.asarray(post_hf.nuc_grad_method().kernel(), dtype=float)
+        gradients = to_numpy(post_hf.nuc_grad_method().kernel())
         if hasattr(post_hf, "make_rdm1"):
-            density_matrix = np.asarray(post_hf.make_rdm1(), dtype=float)
+            density_matrix = to_numpy(post_hf.make_rdm1())
         else:
-            density_matrix = np.asarray(mf.make_rdm1(), dtype=float)
+            density_matrix = to_numpy(mf.make_rdm1())
 
         return energy, gradients, density_matrix
 
@@ -385,9 +391,9 @@ class PySCFRunner(Runner):
                         mf = self._build_mean_field(mol, iter_state)
                         mf = self._configure_hardware(mf, backend=backend, platform_kwargs=platform_kwargs)
                         mf.kernel()
-                        density_matrix = np.asarray(mf.make_rdm1(), dtype=float)
+                        density_matrix = to_numpy(mf.make_rdm1())
                     else:
-                        density_matrix = np.asarray(scan_base.make_rdm1(), dtype=float)
+                        density_matrix = to_numpy(scan_base.make_rdm1())
             except RuntimeError as exc:
                 if backend == "gpu" and allow_gpu_fallback and self._is_gpu_runtime_error(exc):
                     logger.warning(
