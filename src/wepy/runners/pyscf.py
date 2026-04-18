@@ -1,14 +1,20 @@
 """PySCF molecular simulation runner and accessory classes."""
 
 # Standard Library
-import importlib
-import importlib.util
 import logging
 import os
 from copy import deepcopy
 
 # Third Party Library
 import numpy as np
+
+# TODO: Lazy imports
+import pyscf.cc as pyscf_cc
+import pyscf.dft as pyscf_dft
+import pyscf.dft.numint as pyscf_numint
+import pyscf.gto as pyscf_gto
+import pyscf.mp as pyscf_mp
+import pyscf.scf as pyscf_scf
 
 # First Party Library
 from wepy.runners.runner import Runner
@@ -44,7 +50,11 @@ UNIT_NAMES = (
 )
 
 
-def to_numpy(x):
+def to_numpy(x) -> np.ndarray:
+    """Convert an array-like object to a NumPy array of floats.
+
+    Fixes issue with GPU PySCF since we need to convert CuPy arrays to NumPy arrays
+    """
     if hasattr(x, "get"):
         x = x.get()
     return np.asarray(x, dtype=float)
@@ -133,7 +143,6 @@ class PySCFRunner(Runner):
         self._cycle_platform_kwargs = None
 
     def _build_molecule(self, state):
-        pyscf_gto = importlib.import_module("pyscf.gto")
         state_data = state.dict()
 
         symbols = state_data["symbols"]
@@ -151,9 +160,6 @@ class PySCFRunner(Runner):
     def _build_mean_field(self, mol, state):
         state_data = state.dict()
         method = state_data.get("method", self.method).upper()
-
-        pyscf_scf = importlib.import_module("pyscf.scf")
-        pyscf_dft = importlib.import_module("pyscf.dft")
 
         if method == "RHF":
             mf = pyscf_scf.RHF(mol)
@@ -196,8 +202,8 @@ class PySCFRunner(Runner):
             mf = self._build_mean_field(mol, state)
             mf = self._configure_hardware(mf, backend=backend, platform_kwargs=platform_kwargs)
             energy = mf.kernel()
-            gradients = np.asarray(mf.nuc_grad_method().kernel(), dtype=float)
-            density_matrix =to_numpy(mf.make_rdm1())
+            gradients = to_numpy(mf.nuc_grad_method().kernel())
+            density_matrix = to_numpy(mf.make_rdm1())
             return energy, gradients, density_matrix
 
         mf = self._build_reference_mean_field(mol, state)
@@ -205,7 +211,6 @@ class PySCFRunner(Runner):
         mf.kernel()
 
         if method in ("MP2", "DFMP2"):
-            pyscf_mp = importlib.import_module("pyscf.mp")
             post_hf = pyscf_mp.MP2(mf)
             if method == "DFMP2":
                 if not hasattr(post_hf, "density_fit"):
@@ -214,7 +219,6 @@ class PySCFRunner(Runner):
 
             post_hf.kernel()
         elif method == "CCSD":
-            pyscf_cc = importlib.import_module("pyscf.cc")
             post_hf = pyscf_cc.CCSD(mf)
             post_hf.kernel()
         else:
@@ -224,8 +228,8 @@ class PySCFRunner(Runner):
         if energy is None:
             energy = getattr(mf, "e_tot", None)
 
-        gradients = to_numpy(post_hf.nuc_grad_method().kernel())
-        if hasattr(post_hf, "make_rdm1"):
+        gradients = post_hf.nuc_grad_method().kernel()
+        if hasattr(post_hf, "make_rdm1"):  # noqa: SIM108
             density_matrix = to_numpy(post_hf.make_rdm1())
         else:
             density_matrix = to_numpy(mf.make_rdm1())
@@ -289,16 +293,14 @@ class PySCFRunner(Runner):
         return coords, mins, spacing
 
     def _compute_density_grid(self, mol, density_matrix, positions):
-        numint = importlib.import_module("pyscf.dft.numint")
-
         dm = np.asarray(density_matrix)
         if dm.ndim == 3:
             dm = dm[0] + dm[1]
 
         grid_coords, origin, spacing = self._make_density_grid_coords(positions)
 
-        ao_values = numint.eval_ao(mol, grid_coords)
-        rho = numint.eval_rho(mol, ao_values, dm)
+        ao_values = pyscf_numint.eval_ao(mol, grid_coords)
+        rho = pyscf_numint.eval_rho(mol, ao_values, dm)
         rho_grid = np.asarray(rho, dtype=float).reshape(self.density_grid_shape)
 
         return rho_grid, origin, spacing
@@ -383,7 +385,7 @@ class PySCFRunner(Runner):
                     )
                 else:
                     energy, gradients = scanner(mol)
-                    gradients = np.asarray(gradients, dtype=float)
+                    gradients = to_numpy(gradients)
 
                     scan_base = getattr(scanner, "base", None)
                     if scan_base is None or not hasattr(scan_base, "make_rdm1"):
