@@ -25,7 +25,7 @@ from wepy.reporter.dashboard import DashboardReporter
 from wepy.reporter.pyscf import PySCFHDF5Reporter, PySCFRunnerDashboardSection
 from wepy.resampling.distances.pyscf import QMGridDensityDistance
 from wepy.resampling.resamplers.revo import REVOResampler
-from wepy.runners.pyscf import PySCFCPUTaskMapper, PySCFGPUTaskMapper, PySCFRunner, PySCFState, PySCFWalker
+from wepy.runners.pyscf import PySCFCPUWorkerMapper, PySCFGPUWorkerMapper, PySCFRunner, PySCFState, PySCFWalker
 from wepy.sim_manager import Manager
 from wepy.util.mdtraj import mdtraj_to_json_topology
 
@@ -176,11 +176,11 @@ def main():
         else:
             # Assume 1 GPU if num_workers not specified
             device_ids = list(range(CONFIG.num_workers)) if CONFIG.num_workers else [0]
-            mapper = PySCFGPUTaskMapper(num_workers=CONFIG.num_workers, platform="CUDA", device_ids=device_ids)
+            mapper = PySCFGPUWorkerMapper(num_workers=CONFIG.num_workers, platform="CUDA", device_ids=device_ids)
 
     if CONFIG.backend == "cpu":
         num_workers = CONFIG.num_workers or CONFIG.n_walkers
-        mapper = PySCFCPUTaskMapper(num_workers=num_workers)
+        mapper = PySCFCPUWorkerMapper(num_workers=num_workers)
 
     sim_manager = Manager(
         walkers,

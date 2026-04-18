@@ -4,6 +4,7 @@
 import logging
 import os
 from copy import deepcopy
+from time import perf_counter
 
 # Third Party Library
 import numpy as np
@@ -20,7 +21,7 @@ import pyscf.scf as pyscf_scf
 from wepy.runners.runner import Runner
 from wepy.walker import Walker, WalkerState
 from wepy.work_mapper.task_mapper import TaskMapper, WalkerTaskProcess
-from wepy.work_mapper.worker import Worker
+from wepy.work_mapper.worker import Worker, WorkerMapper
 
 logger = logging.getLogger(__name__)
 
@@ -48,6 +49,8 @@ UNIT_NAMES = (
     ("gradients_unit", "hartree/bohr"),
     ("density_grid_unit", "electron/bohr^3"),
 )
+
+_WORKER_SCANNER_CACHE = {}
 
 
 def to_numpy(x) -> np.ndarray:
@@ -135,6 +138,7 @@ class PySCFRunner(Runner):
 
         self._cycle_backend = None
         self._cycle_platform_kwargs = None
+        self._cached_scanner = None
         self._last_cycle_segments_split_times = []
 
     def pre_cycle(self, backend=None, platform_kwargs=None, **kwargs):
@@ -332,6 +336,7 @@ class PySCFRunner(Runner):
         )
 
     def run_segment(self, walker, segment_length, **kwargs):
+        t_segment_start = perf_counter()
         state = walker.state
         positions = np.asarray(state["positions"], dtype=float).copy()
 
@@ -356,29 +361,51 @@ class PySCFRunner(Runner):
         state_method = state.get("method", self.method).upper()
 
         if total_steps > 0 and self.use_scf_scanner and self._method_supports_scanner(state_method):
-            init_state = PySCFState(
-                **{
-                    **state._data,  # TODO: Check if state.dict() needed for deepcopy here?
-                    "positions": positions,
-                    "segment_step_idx": 0,
-                }
-            )
-            init_mol = self._build_molecule(init_state)
-            init_mf = self._build_mean_field(init_mol, init_state)
-            try:
-                init_mf = self._configure_hardware(init_mf, backend=backend, platform_kwargs=platform_kwargs)
-                scanner = self._build_gradient_scanner(init_mf)
-            except RuntimeError as exc:
-                if backend == "gpu" and allow_gpu_fallback and self._is_gpu_runtime_error(exc):
-                    logger.warning(
-                        "GPU initialization failed (%s); falling back to CPU for this segment.",
-                        exc,
-                    )
-                    backend = "cpu"
-                    platform_kwargs = {}
-                    scanner = None
+            t0_init = perf_counter()
+            if getattr(self, "_cached_scanner", None) is None:
+                cache_key = (
+                    str(state.get("basis", getattr(self, "basis", None))),
+                    state_method,
+                    state.get("xc", getattr(self, "xc", None)),
+                    state.get("charge", getattr(self, "charge", None)),
+                    state.get("spin", getattr(self, "spin", None)),
+                    state.get("unit", getattr(self, "unit", None)),
+                    backend,
+                    tuple(sorted(platform_kwargs.items())) if platform_kwargs else (),
+                    tuple(state["symbols"]),
+                )
+
+                if cache_key in _WORKER_SCANNER_CACHE:
+                    self._cached_scanner = _WORKER_SCANNER_CACHE[cache_key]
                 else:
-                    raise
+                    init_state = PySCFState(
+                        **{
+                            **state._data,  # TODO: Check if state.dict() needed for deepcopy here?
+                            "positions": positions,
+                            "segment_step_idx": 0,
+                        }
+                    )
+
+                    init_mol = self._build_molecule(init_state)
+                    init_mf = self._build_mean_field(init_mol, init_state)
+                    try:
+                        init_mf = self._configure_hardware(init_mf, backend=backend, platform_kwargs=platform_kwargs)
+                        self._cached_scanner = self._build_gradient_scanner(init_mf)
+                        _WORKER_SCANNER_CACHE[cache_key] = self._cached_scanner
+                        t1_init = perf_counter()
+                        print(f"[run_segment] scanner init (build_mol, build_mf, scanner): {t1_init - t0_init:.4f} s")
+                    except RuntimeError as exc:
+                        if backend == "gpu" and allow_gpu_fallback and self._is_gpu_runtime_error(exc):
+                            logger.warning(
+                                "GPU initialization failed (%s); falling back to CPU for this segment.",
+                                exc,
+                            )
+                            backend = "cpu"
+                            platform_kwargs = {}
+                            self._cached_scanner = None
+                        else:
+                            raise
+            scanner = self._cached_scanner
 
         for step_idx in range(1, total_steps + 1):
             iter_state = PySCFState(
@@ -396,7 +423,10 @@ class PySCFRunner(Runner):
                         mol, iter_state, backend=backend, platform_kwargs=platform_kwargs
                     )
                 else:
+                    t0_scan = perf_counter()
                     energy, gradients = scanner(mol)
+                    t1_scan = perf_counter()
+                    print(f"[run_segment] scanner(mol): {t1_scan - t0_scan:.4f} s")
                     gradients = to_numpy(gradients)
 
                     scan_base = getattr(scanner, "base", None)
@@ -446,6 +476,9 @@ class PySCFRunner(Runner):
             density_grid_origin=last_density_grid_origin,
             density_grid_spacing=last_density_grid_spacing,
         )
+
+        t_segment_end = perf_counter()
+        print(f"[run_segment] segment total: {t_segment_end - t_segment_start:.4f} s")
 
         if isinstance(walker, PySCFWalker):
             return PySCFWalker(new_state, walker.weight)
@@ -536,6 +569,36 @@ class PySCFGPUTaskMapper(TaskMapper):
 
         super().__init__(
             walker_task_type=PySCFGPUWalkerTaskProcess,
+            num_workers=num_workers,
+            platform=platform,
+            device_ids=device_ids,
+            **kwargs,
+        )
+
+
+class PySCFCPUWorkerMapper(WorkerMapper):
+    """Convenience WorkerMapper for CPU walker-level parallelism."""
+
+    def __init__(self, num_workers=None, **kwargs):
+        super().__init__(
+            worker_type=PySCFCPUWorker,
+            num_workers=num_workers,
+            **kwargs,
+        )
+
+
+class PySCFGPUWorkerMapper(WorkerMapper):
+    """Convenience WorkerMapper for GPU walker-level parallelism."""
+
+    def __init__(self, num_workers=None, platform="CUDA", device_ids=None, **kwargs):
+        if device_ids is None:
+            raise ValueError("device_ids must be provided for PySCFGPUWorkerMapper")
+
+        if num_workers is None:
+            num_workers = len(device_ids)
+
+        super().__init__(
+            worker_type=PySCFGPUWorker,
             num_workers=num_workers,
             platform=platform,
             device_ids=device_ids,
