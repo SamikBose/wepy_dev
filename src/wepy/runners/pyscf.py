@@ -69,6 +69,9 @@ class PySCFState(WalkerState):
     def __getitem__(self, key):
         return self._data[key]
 
+    def get(self, key, default=None):
+        return self._data.get(key, default)
+
     def dict(self):
         return deepcopy(self._data)
 
@@ -143,23 +146,20 @@ class PySCFRunner(Runner):
         self._cycle_platform_kwargs = None
 
     def _build_molecule(self, state):
-        state_data = state.dict()
-
-        symbols = state_data["symbols"]
-        positions = np.asarray(state_data["positions"], dtype=float)
+        symbols = state["symbols"]
+        positions = np.asarray(state["positions"], dtype=float)
         atom = [(symbol, tuple(coord)) for symbol, coord in zip(symbols, positions, strict=True)]
 
         return pyscf_gto.M(
             atom=atom,
-            basis=state_data.get("basis", self.basis),
-            charge=state_data.get("charge", self.charge),
-            spin=state_data.get("spin", self.spin),
-            unit=state_data.get("unit", self.unit),
+            basis=state.get("basis", self.basis),
+            charge=state.get("charge", self.charge),
+            spin=state.get("spin", self.spin),
+            unit=state.get("unit", self.unit),
         )
 
     def _build_mean_field(self, mol, state):
-        state_data = state.dict()
-        method = state_data.get("method", self.method).upper()
+        method = state.get("method", self.method).upper()
 
         if method == "RHF":
             mf = pyscf_scf.RHF(mol)
@@ -167,13 +167,13 @@ class PySCFRunner(Runner):
             mf = pyscf_scf.UHF(mol)
         elif method == "RKS":
             mf = pyscf_dft.RKS(mol)
-            xc = state_data.get("xc", self.xc)
+            xc = state.get("xc", self.xc)
             if xc is None:
                 raise ValueError("RKS method requires an xc functional.")
             mf.xc = xc
         elif method == "UKS":
             mf = pyscf_dft.UKS(mol)
-            xc = state_data.get("xc", self.xc)
+            xc = state.get("xc", self.xc)
             if xc is None:
                 raise ValueError("UKS method requires an xc functional.")
             mf.xc = xc
@@ -183,20 +183,20 @@ class PySCFRunner(Runner):
         return mf
 
     def _build_reference_mean_field(self, mol, state):
-        state_data = state.dict()
-        ref_method = state_data.get("reference_method", None)
+        ref_method = state.get("reference_method", None)
         if ref_method is None:
-            ref_method = "UHF" if state_data.get("spin", self.spin) else "RHF"
+            ref_method = "UHF" if state.get("spin", self.spin) else "RHF"
 
-        ref_state = PySCFState(**{**state_data, "method": ref_method})
+        ref_state = PySCFState(
+            **{**state._data, "method": ref_method}
+        )  # TODO: Check if state.dict() needed for deepcopy here?
         return self._build_mean_field(mol, ref_state)
 
     def _method_supports_scanner(self, method):
         return method in ("RHF", "UHF", "RKS", "UKS")
 
     def _run_quantum_step(self, mol, state, backend, platform_kwargs):
-        state_data = state.dict()
-        method = state_data.get("method", self.method).upper()
+        method = state.get("method", self.method).upper()
 
         if method in ("RHF", "UHF", "RKS", "UKS"):
             mf = self._build_mean_field(mol, state)
@@ -332,8 +332,8 @@ class PySCFRunner(Runner):
         )
 
     def run_segment(self, walker, segment_length, **kwargs):
-        state_data = walker.state.dict()
-        positions = np.asarray(state_data["positions"], dtype=float).copy()
+        state = walker.state
+        positions = np.asarray(state["positions"], dtype=float).copy()
 
         total_steps = int(segment_length)
         if total_steps < 0:
@@ -342,7 +342,7 @@ class PySCFRunner(Runner):
         backend = kwargs.get("backend", self._cycle_backend or self.backend)
         platform_kwargs = kwargs.get("platform_kwargs", self._cycle_platform_kwargs or {})
 
-        last_energy = state_data.get("energy", None)
+        last_energy = state.get("energy", None)
         last_gradients = np.zeros_like(positions)
         last_density_matrix = np.zeros((positions.shape[0], positions.shape[0]))
         last_density_grid = np.zeros(self.density_grid_shape)
@@ -353,10 +353,16 @@ class PySCFRunner(Runner):
         scanner = None
         allow_gpu_fallback = kwargs.get("gpu_fallback_cpu_on_error", self.gpu_fallback_cpu_on_error)
 
-        state_method = state_data.get("method", self.method).upper()
+        state_method = state.get("method", self.method).upper()
 
         if total_steps > 0 and self.use_scf_scanner and self._method_supports_scanner(state_method):
-            init_state = PySCFState(**{**state_data, "positions": positions, "segment_step_idx": 0})
+            init_state = PySCFState(
+                **{
+                    **state._data,  # TODO: Check if state.dict() needed for deepcopy here?
+                    "positions": positions,
+                    "segment_step_idx": 0,
+                }
+            )
             init_mol = self._build_molecule(init_state)
             init_mf = self._build_mean_field(init_mol, init_state)
             try:
@@ -375,7 +381,13 @@ class PySCFRunner(Runner):
                     raise
 
         for step_idx in range(1, total_steps + 1):
-            iter_state = PySCFState(**{**state_data, "positions": positions, "segment_step_idx": step_idx})
+            iter_state = PySCFState(
+                **{
+                    **state._data,  # TODO: Check if state.dict() needed for deepcopy here?
+                    "positions": positions,
+                    "segment_step_idx": step_idx,
+                }
+            )
             mol = self._build_molecule(iter_state)
 
             try:
@@ -424,7 +436,7 @@ class PySCFRunner(Runner):
             segment_step_idx = step_idx
 
         new_state = self.generate_state(
-            state_data,
+            state._data,  # TODO: Check if state.dict() needed for deepcopy here?
             positions=positions,
             energy=last_energy,
             gradients=last_gradients,
