@@ -4,7 +4,6 @@
 import logging
 import os
 from copy import deepcopy
-from time import perf_counter
 
 # Third Party Library
 import numpy as np
@@ -191,9 +190,7 @@ class PySCFRunner(Runner):
         if ref_method is None:
             ref_method = "UHF" if state.get("spin", self.spin) else "RHF"
 
-        ref_state = PySCFState(
-            **{**state._data, "method": ref_method}
-        )  # TODO: Check if state.dict() needed for deepcopy here?
+        ref_state = PySCFState(**{**state._data, "method": ref_method})
         return self._build_mean_field(mol, ref_state)
 
     def _method_supports_scanner(self, method):
@@ -336,7 +333,6 @@ class PySCFRunner(Runner):
         )
 
     def run_segment(self, walker, segment_length, **kwargs):
-        t_segment_start = perf_counter()
         state = walker.state
         positions = np.asarray(state["positions"], dtype=float).copy()
 
@@ -361,7 +357,6 @@ class PySCFRunner(Runner):
         state_method = state.get("method", self.method).upper()
 
         if total_steps > 0 and self.use_scf_scanner and self._method_supports_scanner(state_method):
-            t0_init = perf_counter()
             if getattr(self, "_cached_scanner", None) is None:
                 cache_key = (
                     str(state.get("basis", getattr(self, "basis", None))),
@@ -380,7 +375,7 @@ class PySCFRunner(Runner):
                 else:
                     init_state = PySCFState(
                         **{
-                            **state._data,  # TODO: Check if state.dict() needed for deepcopy here?
+                            **state._data,
                             "positions": positions,
                             "segment_step_idx": 0,
                         }
@@ -392,8 +387,6 @@ class PySCFRunner(Runner):
                         init_mf = self._configure_hardware(init_mf, backend=backend, platform_kwargs=platform_kwargs)
                         self._cached_scanner = self._build_gradient_scanner(init_mf)
                         _WORKER_SCANNER_CACHE[cache_key] = self._cached_scanner
-                        t1_init = perf_counter()
-                        print(f"[run_segment] scanner init (build_mol, build_mf, scanner): {t1_init - t0_init:.4f} s")
                     except RuntimeError as exc:
                         if backend == "gpu" and allow_gpu_fallback and self._is_gpu_runtime_error(exc):
                             logger.warning(
@@ -410,7 +403,7 @@ class PySCFRunner(Runner):
         for step_idx in range(1, total_steps + 1):
             iter_state = PySCFState(
                 **{
-                    **state._data,  # TODO: Check if state.dict() needed for deepcopy here?
+                    **state._data,
                     "positions": positions,
                     "segment_step_idx": step_idx,
                 }
@@ -423,10 +416,7 @@ class PySCFRunner(Runner):
                         mol, iter_state, backend=backend, platform_kwargs=platform_kwargs
                     )
                 else:
-                    t0_scan = perf_counter()
                     energy, gradients = scanner(mol)
-                    t1_scan = perf_counter()
-                    print(f"[run_segment] scanner(mol): {t1_scan - t0_scan:.4f} s")
                     gradients = to_numpy(gradients)
 
                     scan_base = getattr(scanner, "base", None)
@@ -466,7 +456,7 @@ class PySCFRunner(Runner):
             segment_step_idx = step_idx
 
         new_state = self.generate_state(
-            state._data,  # TODO: Check if state.dict() needed for deepcopy here?
+            state._data,
             positions=positions,
             energy=last_energy,
             gradients=last_gradients,
@@ -476,9 +466,6 @@ class PySCFRunner(Runner):
             density_grid_origin=last_density_grid_origin,
             density_grid_spacing=last_density_grid_spacing,
         )
-
-        t_segment_end = perf_counter()
-        print(f"[run_segment] segment total: {t_segment_end - t_segment_start:.4f} s")
 
         if isinstance(walker, PySCFWalker):
             return PySCFWalker(new_state, walker.weight)
