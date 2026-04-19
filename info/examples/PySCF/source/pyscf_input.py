@@ -15,7 +15,7 @@ class PySCFInput:
     gpu_fallback_cpu_on_error: bool = False
 
     # Simulation size
-    n_walkers: int = 1
+    n_walkers: int = 5
     n_cycles: int = 5
     segment_length: int = 1
 

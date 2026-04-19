@@ -10,6 +10,7 @@ os.environ.setdefault("OMP_NUM_THREADS", "1")  # Good default for PySCF CPU runs
 
 # Standard Library
 import importlib.util
+import subprocess
 import tempfile
 from time import perf_counter
 
@@ -174,9 +175,24 @@ def main():
                     "or rerun with CPU.",
                 )
         else:
-            # Assume 1 GPU if num_workers not specified
-            device_ids = list(range(CONFIG.num_workers)) if CONFIG.num_workers else [0]
-            mapper = PySCFGPUWorkerMapper(num_workers=CONFIG.num_workers, platform="CUDA", device_ids=device_ids)
+            # Get number of GPUs using nvidia-smi
+            try:
+                result = subprocess.run(
+                    ["nvidia-smi", "--query-gpu=name", "--format=csv,noheader"],
+                    capture_output=True,
+                    text=True,
+                    check=True,
+                )
+                num_gpus = len([line for line in result.stdout.strip().split("\n") if line])
+            except (FileNotFoundError, subprocess.CalledProcessError):
+                raise RuntimeError("No GPUs found or nvidia-smi failed.") from None
+
+            if num_gpus == 0:
+                raise RuntimeError("No GPUs found.")
+
+            num_workers = CONFIG.num_workers or CONFIG.n_walkers
+            device_ids = [i % num_gpus for i in range(num_workers)]  # Round-robin assign workers to GPUs
+            mapper = PySCFGPUWorkerMapper(num_workers=num_workers, platform="CUDA", device_ids=device_ids)
 
     if CONFIG.backend == "cpu":
         num_workers = CONFIG.num_workers or CONFIG.n_walkers
