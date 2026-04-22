@@ -398,8 +398,14 @@ class PySCFRunner(Runner):
                             self._cached_scanner = None
                         else:
                             raise
-            scanner = self._cached_scanner
 
+            # Reuse cached scanner, but wipe memory of the old wavefunction
+            scanner = self._cached_scanner
+            if scanner is not None and hasattr(scanner, "base"):
+                # https://github.com/pyscf/pyscf/blob/e620426d1bc1385bf09437e3c14cdc7019781880/pyscf/scf/hf.py#L1616
+                scanner.base.mo_coeff = None  # Forces PySCF to discard old wavefunction
+
+        # Reuse scanner (and wavefunction) between steps of same walker
         for step_idx in range(1, total_steps + 1):
             iter_state = PySCFState(
                 **{

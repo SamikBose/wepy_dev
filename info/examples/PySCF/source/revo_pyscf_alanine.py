@@ -190,6 +190,8 @@ def main():
             if num_gpus == 0:
                 raise RuntimeError("No GPUs found.")
 
+            print(f"Found {num_gpus} GPU(s) available for PySCFRunner.")
+
             num_workers = CONFIG.num_workers or CONFIG.n_walkers
             device_ids = [i % num_gpus for i in range(num_workers)]  # Round-robin assign workers to GPUs
             mapper = PySCFGPUWorkerMapper(num_workers=num_workers, platform="CUDA", device_ids=device_ids)
