@@ -7,6 +7,10 @@ import os
 from dataclasses import dataclass
 
 
+# TODO: Check after 50 cycles the difference
+# TODO: When merging and splitting, copy over scanner for cache
+# TODO: Check if merging was removed by using WorkerMappers
+
 @dataclass
 class PySCFInput:
     # System name and info
@@ -15,8 +19,8 @@ class PySCFInput:
     gpu_fallback_cpu_on_error: bool = False
 
     # Simulation size
-    n_walkers: int = 5
-    n_cycles: int = 5
+    n_walkers: int = 4
+    n_cycles: int = 50
     segment_length: int = 1
 
     # Walker initialization
@@ -44,7 +48,7 @@ class PySCFInput:
 
     # Output control
     write_h5: bool = False # TODO: Add write control to other systems (just alanine right now)
-    write_dash: bool = False
+    write_dash: bool = True
     h5_path: str = ""
     dash_path: str = ""
     overwrite: bool = True

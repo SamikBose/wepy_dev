@@ -1,0 +1,74 @@
+* Simulation
+
+Init Datetime: 2026-04-21 23:59:30.123979
+Last write Datetime: 2026-04-21T23:59:34.103603
+Total Run time: 3.979609489440918 s
+Last Cycle Index: 4
+Number of Cycles: 5
+
+** Walkers Summary
+|    |   total |   min |   max |
+|----+---------+-------+-------|
+|  0 |       1 |     1 |     1 |
+|  1 |       1 |     1 |     1 |
+|  2 |       1 |     1 |     1 |
+|  3 |       1 |     1 |     1 |
+|  4 |       1 |     1 |     1 |
+
+
+
+
+
+
+
+
+* Runner
+
+
+Runner: PySCFRunner
+
+Backend: gpu
+Dynamics mode: langevin
+Temperature (K): 300.0
+Step size: 0.0001
+Average Energy: -486.5509168008922
+
+* Performance
+
+Average Cycle Time: 0.7883359432220459
+Average Runner Time: 0.7879364490509033
+Average Boundary Conditions Time: 4.816055297851562e-06
+Average Resampling Time: 0.0003946781158447266
+
+** Worker Avg. Segment Times:
+|    |   avg_segment_time (s) |
+|----+------------------------|
+|  0 |                0.98341 |
+
+** Cycle Performance Log
+|    |   cycle_time (s) |   runner_time (s) |   boundary_conditions_time (s) |   resampling_time (s) |
+|----+------------------+-------------------+--------------------------------+-----------------------|
+|  0 |              nan |          1.96748  |                    1.43051e-05 |           0.000957966 |
+|  1 |              nan |          0.502661 |                    2.38419e-06 |           0.000268936 |
+|  2 |              nan |          0.500632 |                    3.09944e-06 |           0.000252247 |
+|  3 |              nan |          0.487194 |                    2.14577e-06 |           0.000243902 |
+|  4 |              nan |          0.481719 |                    2.14577e-06 |           0.00025034  |
+
+** Worker Performance Log
+|   cycle_idx |   n_steps |   worker_idx |   segment_time (s) |
+|-------------+-----------+--------------+--------------------|
+|           0 |         1 |            0 |           1.96164  |
+|           1 |         1 |            0 |           1.96164  |
+|           1 |         1 |            0 |           0.499228 |
+|           2 |         1 |            0 |           1.96164  |
+|           2 |         1 |            0 |           0.499228 |
+|           2 |         1 |            0 |           0.498499 |
+|           3 |         1 |            0 |           1.96164  |
+|           3 |         1 |            0 |           0.499228 |
+|           3 |         1 |            0 |           0.498499 |
+|           3 |         1 |            0 |           0.485324 |
+|           4 |         1 |            0 |           1.96164  |
+|           4 |         1 |            0 |           0.499228 |
+|           4 |         1 |            0 |           0.498499 |
+|           4 |         1 |            0 |           0.485324 |
+|           4 |         1 |            0 |           0.479891 |
