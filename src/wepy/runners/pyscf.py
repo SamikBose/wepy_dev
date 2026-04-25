@@ -49,8 +49,6 @@ UNIT_NAMES = (
     ("density_grid_unit", "electron/bohr^3"),
 )
 
-_WORKER_SCANNER_CACHE = {}
-
 
 def to_numpy(x) -> np.ndarray:
     """Convert an array-like object to a NumPy array of floats.
@@ -137,7 +135,7 @@ class PySCFRunner(Runner):
 
         self._cycle_backend = None
         self._cycle_platform_kwargs = None
-        self._cached_scanner = None
+
         self._last_cycle_segments_split_times = []
 
     def pre_cycle(self, backend=None, platform_kwargs=None, **kwargs):
@@ -357,53 +355,30 @@ class PySCFRunner(Runner):
         state_method = state.get("method", self.method).upper()
 
         if total_steps > 0 and self.use_scf_scanner and self._method_supports_scanner(state_method):
-            if getattr(self, "_cached_scanner", None) is None:
-                cache_key = (
-                    str(state.get("basis", getattr(self, "basis", None))),
-                    state_method,
-                    state.get("xc", getattr(self, "xc", None)),
-                    state.get("charge", getattr(self, "charge", None)),
-                    state.get("spin", getattr(self, "spin", None)),
-                    state.get("unit", getattr(self, "unit", None)),
-                    backend,
-                    tuple(sorted(platform_kwargs.items())) if platform_kwargs else (),
-                    tuple(state["symbols"]),
-                )
+            init_state = PySCFState(
+                **{
+                    **state._data,
+                    "positions": positions,
+                    "segment_step_idx": 0,
+                }
+            )
 
-                if cache_key in _WORKER_SCANNER_CACHE:
-                    self._cached_scanner = _WORKER_SCANNER_CACHE[cache_key]
-                else:
-                    init_state = PySCFState(
-                        **{
-                            **state._data,
-                            "positions": positions,
-                            "segment_step_idx": 0,
-                        }
+            init_mol = self._build_molecule(init_state)
+            init_mf = self._build_mean_field(init_mol, init_state)
+            try:
+                init_mf = self._configure_hardware(init_mf, backend=backend, platform_kwargs=platform_kwargs)
+                scanner = self._build_gradient_scanner(init_mf)
+            except RuntimeError as exc:
+                if backend == "gpu" and allow_gpu_fallback and self._is_gpu_runtime_error(exc):
+                    logger.warning(
+                        "GPU initialization failed (%s); falling back to CPU for this segment.",
+                        exc,
                     )
-
-                    init_mol = self._build_molecule(init_state)
-                    init_mf = self._build_mean_field(init_mol, init_state)
-                    try:
-                        init_mf = self._configure_hardware(init_mf, backend=backend, platform_kwargs=platform_kwargs)
-                        self._cached_scanner = self._build_gradient_scanner(init_mf)
-                        _WORKER_SCANNER_CACHE[cache_key] = self._cached_scanner
-                    except RuntimeError as exc:
-                        if backend == "gpu" and allow_gpu_fallback and self._is_gpu_runtime_error(exc):
-                            logger.warning(
-                                "GPU initialization failed (%s); falling back to CPU for this segment.",
-                                exc,
-                            )
-                            backend = "cpu"
-                            platform_kwargs = {}
-                            self._cached_scanner = None
-                        else:
-                            raise
-
-            # Reuse cached scanner, but wipe memory of the old wavefunction
-            scanner = self._cached_scanner
-            if scanner is not None and hasattr(scanner, "base"):
-                # https://github.com/pyscf/pyscf/blob/e620426d1bc1385bf09437e3c14cdc7019781880/pyscf/scf/hf.py#L1616
-                scanner.base.mo_coeff = None  # Forces PySCF to discard old wavefunction
+                    backend = "cpu"
+                    platform_kwargs = {}
+                    scanner = None
+                else:
+                    raise
 
         # Reuse scanner (and wavefunction) between steps of same walker
         for step_idx in range(1, total_steps + 1):
