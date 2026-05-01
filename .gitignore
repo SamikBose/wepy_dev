@@ -287,3 +287,6 @@ tags
 .vim
 
 # End of https://www.gitignore.io/api/vim
+# pixi environments
+.pixi/*
+!.pixi/config.toml
