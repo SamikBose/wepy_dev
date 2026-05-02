@@ -184,17 +184,21 @@ def main():
                     check=True,
                 )
                 num_gpus = len([line for line in result.stdout.strip().split("\n") if line])
+
+                if num_gpus == 0:
+                    raise RuntimeError("No GPUs found.")
+
+                print(f"Found {num_gpus} GPU(s) available for PySCFRunner.")
+
+                num_workers = CONFIG.num_workers or CONFIG.n_walkers
+                device_ids = [i % num_gpus for i in range(num_workers)]  # Round-robin assign workers to GPUs
+                mapper = PySCFGPUWorkerMapper(num_workers=num_workers, platform="CUDA", device_ids=device_ids)
             except (FileNotFoundError, subprocess.CalledProcessError):
-                raise RuntimeError("No GPUs found or nvidia-smi failed.") from None
-
-            if num_gpus == 0:
-                raise RuntimeError("No GPUs found.")
-
-            print(f"Found {num_gpus} GPU(s) available for PySCFRunner.")
-
-            num_workers = CONFIG.num_workers or CONFIG.n_walkers
-            device_ids = [i % num_gpus for i in range(num_workers)]  # Round-robin assign workers to GPUs
-            mapper = PySCFGPUWorkerMapper(num_workers=num_workers, platform="CUDA", device_ids=device_ids)
+                if CONFIG.gpu_fallback_cpu_on_error:
+                    print("nvidia-smi not found or failed; falling back to CPU walker parallelization")
+                    CONFIG.backend = "cpu"
+                else:
+                    raise RuntimeError("No GPUs found or nvidia-smi failed.") from None
 
     if CONFIG.backend == "cpu":
         num_workers = CONFIG.num_workers or CONFIG.n_walkers
