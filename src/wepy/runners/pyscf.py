@@ -8,19 +8,25 @@ from copy import deepcopy
 # Third Party Library
 import numpy as np
 
-# TODO: Lazy imports
-import pyscf.cc as pyscf_cc
-import pyscf.dft as pyscf_dft
-import pyscf.dft.numint as pyscf_numint
-import pyscf.gto as pyscf_gto
-import pyscf.mp as pyscf_mp
-import pyscf.scf as pyscf_scf
+try:
+    # Third Party Library
+    import pyscf.cc as pyscf_cc
+    import pyscf.dft as pyscf_dft
+    import pyscf.dft.numint as pyscf_numint
+    import pyscf.gto as pyscf_gto
+    import pyscf.mp as pyscf_mp
+    import pyscf.scf as pyscf_scf
+except ModuleNotFoundError:
+    raise ModuleNotFoundError("PySCF has not been installed, which this runner requires.") from None
 
 # First Party Library
 from wepy.runners.runner import Runner
 from wepy.walker import Walker, WalkerState
 from wepy.work_mapper.task_mapper import TaskMapper, WalkerTaskProcess
 from wepy.work_mapper.worker import Worker, WorkerMapper
+
+# NOTE: No box_vectors_to_lengths_angles
+# NOTE: No WorkerMapper or TaskMapper
 
 logger = logging.getLogger(__name__)
 
@@ -41,6 +47,11 @@ KEYS = (
     "unit",
     "segment_step_idx",
 )
+"""Names of the fields of the PySCFState"""
+
+# NOTE: No state data type enums
+
+# NOTE: No get state fields present (helper to return a set fo the field data types present in a state)
 
 UNIT_NAMES = (
     ("positions_unit", "angstrom"),
@@ -48,6 +59,7 @@ UNIT_NAMES = (
     ("gradients_unit", "hartree/bohr"),
     ("density_grid_unit", "electron/bohr^3"),
 )
+"""Mapping of unit identifier strings to the serialized string spec of the unit."""
 
 
 def to_numpy(x) -> np.ndarray:
@@ -60,32 +72,75 @@ def to_numpy(x) -> np.ndarray:
     return np.asarray(x, dtype=float)
 
 
+# NOTE: State, Walker, Runner
+
+# Runner, State, Walker
+
+
 class PySCFState(WalkerState):
+    """Walker state that wraps a ____.
+
+    The keys for which values in the state are available are given by
+    the KEYS modules constant (accessible through the class constant of
+    the same name as well).
+    """
+
     KEYS = KEYS
+    """The provided attribute keys for the state."""
+
+    # NOTE: No other key template (additional fields accessed through passing extra kwargs)
 
     def __init__(self, **kwargs):
+        # NOTE: No sim state (does PySCF have this that we can save?)
+        # NOTE: No data field probing based on sim state
+        # NOTE: No renaming/warning for keys that collide with KEYS (can override by passing same key name)
+
         self._data = kwargs
 
     def __getitem__(self, key):
+        # NOTE: No special processing for keys
+        #   OpenMM runner calls functions depending on the key (some just are mappings to the variable)
         return self._data[key]
 
     def get(self, key, default=None):
         return self._data.get(key, default)
 
     def dict(self):
+        # NOTE: No extra keys so we don't have to check extra stuff
+
+        # TODO: Shallow copy? dict(self.data)
+        # Shallow copy fine if all values are immutable
         return deepcopy(self._data)
+
+    # NOTE: No to_mdtraj from state given a topology
+
+    # NOTE: No convinence function to generate wepy walker State object for PySCF sim state
+
+
+# NOTE: Defined below runner in OpenMM runner
 
 
 class PySCFWalker(Walker):
+    """Walker for OpenMMRunner simulations.
+
+    This simply enforces the use of an PySCFState object for the
+    walker state attribute.
+    """
+
     def __init__(self, state, weight):
         assert isinstance(state, PySCFState), f"state must be an instance of PySCFState not {type(state)}"
         super().__init__(state, weight)
 
 
 class PySCFRunner(Runner):
+    """Runner for PySCF simulations."""
+
     SUPPORTED_METHODS = ("RHF", "UHF", "RKS", "UKS", "MP2", "DFMP2", "CCSD")
     SUPPORTED_DYNAMICS_MODES = ("steepest_descent", "langevin")
     BOLTZMANN_HARTREE_PER_K = 3.166811563e-6
+
+    # NOTE: OpenMM runner handles CPU/GPU differently (used platform variable specifying which computational platform)
+    # Ex: Reference, CUDA, OpenCL, etc.
 
     def __init__(
         self,
@@ -105,6 +160,41 @@ class PySCFRunner(Runner):
         density_grid_padding=2.0,
         gpu_fallback_cpu_on_error=False,
     ):
+        """Constructor for PySCFRunner.
+
+        Parameters
+        ----------
+        basis:
+
+        method:
+
+        xc:
+
+        charge:
+
+        spin:
+
+        unit:
+
+        step_size:
+
+        dynamics_mode:
+
+        temperature_kelvin:
+
+        random_seed:
+
+        backend:
+
+        use_scf_scanner:
+
+        density_grid_shape:
+
+        density_grid_padding:
+
+        gpu_fallback_cpu_on_error:
+
+        """
         self.basis = basis
         self.method = method.upper()
         self.xc = xc
@@ -136,13 +226,24 @@ class PySCFRunner(Runner):
         self._cycle_backend = None
         self._cycle_platform_kwargs = None
 
+        # for special monitoring purposes to get split times to debug performance
         self._last_cycle_segments_split_times = []
+
+    # NOTE: No super() calls in pre_cycle or post_cycle
 
     def pre_cycle(self, backend=None, platform_kwargs=None, **kwargs):
         self._cycle_backend = backend
         self._cycle_platform_kwargs = platform_kwargs
 
+        # NOTE: No pre cycle?
+
+        # each segment split times will get appended to this
+        self._last_cycle_segments_split_times = []
+
     def post_cycle(self, **kwargs):
+        # NOTE: No post cycle?
+
+        # remove the platform and kwargs for this cycle
         self._cycle_backend = None
         self._cycle_platform_kwargs = None
 
@@ -181,7 +282,7 @@ class PySCFRunner(Runner):
         else:
             raise ValueError(f"Unsupported PySCF mean-field method '{method}'.")
 
-        return mf
+        return mf  # TODO: to_gpu() here?
 
     def _build_reference_mean_field(self, mol, state):
         ref_method = state.get("reference_method", None)
@@ -195,6 +296,8 @@ class PySCFRunner(Runner):
         return method in ("RHF", "UHF", "RKS", "UKS")
 
     def _run_quantum_step(self, mol, state, backend, platform_kwargs):
+        # TODO: to_gpu()?
+
         method = state.get("method", self.method).upper()
 
         if method in ("RHF", "UHF", "RKS", "UKS"):
@@ -245,7 +348,7 @@ class PySCFRunner(Runner):
 
             if hasattr(mf, "to_gpu"):
                 try:
-                    mf = mf.to_gpu()
+                    mf = mf.to_gpu()  # TODO: Is this the best place to do this?
                 except ModuleNotFoundError as exc:
                     if getattr(exc, "name", None) == "cupy":
                         raise RuntimeError(
@@ -330,7 +433,11 @@ class PySCFRunner(Runner):
             }
         )
 
+    # NOTE: OpenMM runner has run_segment before generate state
+
     def run_segment(self, walker, segment_length, **kwargs):
+        # NOTE: No time logging
+
         state = walker.state
         positions = np.asarray(state["positions"], dtype=float).copy()
 
@@ -357,7 +464,7 @@ class PySCFRunner(Runner):
         if total_steps > 0 and self.use_scf_scanner and self._method_supports_scanner(state_method):
             init_state = PySCFState(
                 **{
-                    **state._data,
+                    **state._data,  # TODO: Safe?
                     "positions": positions,
                     "segment_step_idx": 0,
                 }
@@ -470,8 +577,24 @@ class PySCFRunner(Runner):
         return positions - drift + thermal_noise
 
 
+# NOTE: Not much docs for these Worker classes (might be used internally)
+
+
 class PySCFCPUWorker(Worker):
+    """Worker for PySCF CPU simulations.
+
+    This is intended to be used with the wepy.work_mapper.WorkerMapper
+    work mapper class.
+
+    This class must be used in order to ensure PySCF runs jobs on the
+    appropriate CPU device.
+
+    """
+
     NAME_TEMPLATE = "PySCFCPUWorker-{}"
+    """The name template the worker processes are named to substituting in
+    the process number."""
+
     DEFAULT_NUM_THREADS = 1
 
     def __init__(self, *args, **kwargs):
@@ -479,25 +602,52 @@ class PySCFCPUWorker(Worker):
         super().__init__(*args, num_threads=num_threads, **kwargs)
 
     def run_task(self, task):
+        # make the platform kwargs dictionary
         platform_options = {"Threads": str(self.attributes["num_threads"])}
+
         return task(backend="cpu", platform_kwargs=platform_options)
 
 
+# NOTE: No OpenCL (OpenMM has support for CUDA and OpenCL backends as the platform type)
+
+
 class PySCFGPUWorker(Worker):
+    """Worker for PySCF GPU simulations (CUDA platforms).
+
+    This is intended to be used with the wepy.work_mapper.WorkerMapper
+    work mapper class.
+
+    This class must be used in order to ensure PySCF runs jobs on the
+    appropriate GPU device.
+
+    """
+
     NAME_TEMPLATE = "PySCFGPUWorker-{}"
+    """The name template the worker processes are named to substituting in
+    the process number."""
+
+    # NOTE: No logging
 
     def run_task(self, task):
+        # get the device index from the attributes
         device_id = self.mapper_attributes["device_ids"][self._worker_idx]
+
+        # make the platform kwargs dictionary
         platform_options = {"DeviceIndex": str(device_id)}
+
         return task(backend="gpu", platform_kwargs=platform_options)
 
 
 class PySCFCPUWalkerTaskProcess(WalkerTaskProcess):
     NAME_TEMPLATE = "PySCF_CPU_Walker_Task-{}"
 
+    # NOTE: No logging
+
     def run_task(self, task):
         if "num_threads" in self.mapper_attributes:
             num_threads = self.mapper_attributes["num_threads"]
+
+            # make the platform kwargs dictionary
             platform_options = {"Threads": str(num_threads)}
         else:
             platform_options = {}
@@ -508,10 +658,24 @@ class PySCFCPUWalkerTaskProcess(WalkerTaskProcess):
 class PySCFGPUWalkerTaskProcess(WalkerTaskProcess):
     NAME_TEMPLATE = "PySCF_GPU_Walker_Task-{}"
 
+    # NOTE: No logging
+
     def run_task(self, task):
+        # get the device index from the attributes
         device_id = self.mapper_attributes["device_ids"][self._worker_idx]
+
+        # make the platform kwargs dictionary
         platform_options = {"DeviceIndex": str(device_id)}
+
         return task(backend="gpu", platform_kwargs=platform_options)
+
+
+# NOTE: OpenMM runner doesn't have these functions below
+# The comments in OpenMM runner seem to indicate that WorkerMapper is prefered
+# TaskMapper spawns a new process per worker per cycle
+# WorkerMapper spawns a new process per worker that persists across cycles (less overhead)
+
+# Create with type with: mapper = TaskMapper(walker_task_type=PySCFGPUWalkerTaskProcess,
 
 
 class PySCFCPUTaskMapper(TaskMapper):

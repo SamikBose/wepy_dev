@@ -1327,13 +1327,13 @@ class OpenMMWalker(Walker):
 
 
 class OpenMMCPUWorker(Worker):
-    """Worker for OpenMM GPU simulations (CUDA or OpenCL platforms).
+    """Worker for OpenMM CPU simulations.
 
     This is intended to be used with the wepy.work_mapper.WorkerMapper
     work mapper class.
 
     This class must be used in order to ensure OpenMM runs jobs on the
-    appropriate GPU device.
+    appropriate CPU device.
 
     """
 
@@ -1357,8 +1357,6 @@ class OpenMMCPUWorker(Worker):
         # make the platform kwargs dictionary
         platform_options = {"Threads": str(self.attributes["num_threads"])}
 
-        # run the task and pass in the DeviceIndex for OpenMM to
-        # assign work to the correct GPU
         return task(platform_kwargs=platform_options)
 
 
