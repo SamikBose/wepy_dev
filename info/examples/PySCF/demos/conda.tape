@@ -35,7 +35,6 @@ Type "clear"
 Enter
 Sleep 1s
 
-
 # Enter the PTR_bose directory
 Type "cd /mnt/research/PTR_bose"
 

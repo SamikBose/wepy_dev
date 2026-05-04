@@ -1,6 +1,6 @@
 # Make sure your base `wepy_dev` folder is not called `wepy_dev` to avoid confusion with the cloned repository
 
-Output wepy_dev1.gif
+Output wepy_dev.gif
 
 Set Width 1100
 Set Height 600
@@ -41,13 +41,15 @@ Type "cd wepy_dev"
 Enter
 Sleep 1s
 
-# Build the project (CMake already installed from the ml imports above)
+# Build the project (make already installed from the Conda environment)
 Type "make build"
 Enter
 Sleep 3s
+
 Hide
 Sleep 7s # Skip 7s ahead
 Show
+
 Wait@60s /.+@.+:.*\$/ # Wait for the prompt to return (hard cap of 30s)
 Sleep 1s
 

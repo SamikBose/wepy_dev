@@ -74,15 +74,68 @@ pip uninstall wepy -y
 pip install dist/wepy-1.1.0-py2.py3-none-any.whl
 ```
 
-### PySCF Setup
+### PySCF GPU Setup
 
-pyscf and gpu4pyscf?
+![PySCF GPU Setup](gpu4pyscf.gif)
+
+1. Make sure to be on a dev node with a GPU, have the required modules loaded, and have the Conda environment activated.
+
+```bash
+ssh dev-amd24-h200
+ml purge && ml load Miniforge3 OpenBLAS CUDA
+conda activate wepy-dev
+```
+
+2. Install the appropriate packages based on your CUDA version.
+
+```bash
+# Check your CUDA version
+nvcc --version
+
+# For CUDA 12.x
+pip3 install cutensor-cu12 cupy-cuda12x
+```
+
+3. Clone the [`gpu4pyscf`](https://github.com/pyscf/gpu4pyscf) repository and enter the directory.
+
+```bash
+git clone https://github.com/pyscf/gpu4pyscf.git
+cd gpu4pyscf
+```
+
+4. Build the PySCF GPU package.
+
+```bash
+ml load CMake # Ensure CMake is loaded
+cmake -S gpu4pyscf/lib -B build/temp.gpu4pyscf
+cmake --build build/temp.gpu4pyscf -j 4 # This will take a long time
+```
+
+5. Add the `gpu4pyscf` library to your `PYTHONPATH` environment variable.
+
+```bash
+CURRENT_PATH=`pwd`
+export PYTHONPATH="${PYTHONPATH}:${CURRENT_PATH}"
+```
+
+6. Navigate back to `wepy_dev` and run your Wepy simulations with GPU support.
+
+```bash
+cd ../wepy_dev
+python python info/examples/PySCF/source/revo_pyscf_alanine.py
+```
+
+7. You might have to reinstall `mdtraj` if you get `numpy`-related error.
+
+```bash
+pip install --upgrade --force-reinstall mdtraj --no-cache-dir
+```
 
 ## Local Development
 
 ![Nix + Pixi Setup](nix_pixi_cpu.gif)
 
-1. Install Nix and Pixi on your local machine.
+1. Install [Nix](https://nixos.org/) and [Pixi](https://pixi.prefix.dev/latest/) on your local machine.
 
 2. Clone the `wepy_dev` repository and enter the directory.
 
